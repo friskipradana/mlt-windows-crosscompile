@@ -1,0 +1,47 @@
+# Source downloads
+src/
+
+# Build output (terlalu besar untuk di-push)
+win-deps/
+
+# Build directories
+**/build/
+**/CMakeFiles/
+
+# Compiled files
+*.o
+*.obj
+*.a
+*.dll
+*.exe
+*.dll.a
+*.la
+*.lo
+
+# Autoconf
+**/autom4te.cache/
+**/config.status
+**/config.log
+
+# Meson
+**/meson-info/
+**/meson-logs/
+**/.ninja_deps
+**/.ninja_log
+
+# Archives
+*.tar.gz
+*.tar.xz
+*.tar.bz2
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Custom Folder & Files
+another/
+editor/
+progress-deps.md
+install-mlt.md
+mingw-cross.ini
