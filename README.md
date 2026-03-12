@@ -67,7 +67,6 @@ chmod +x build-all.sh
 
 This will build all dependencies and MLT in the correct order.
 
----
 
 ## Manual Build Steps
 
@@ -365,7 +364,6 @@ cmake .. \
 make -j$(nproc) && make install
 ```
 
----
 
 ## Known Issues
 
