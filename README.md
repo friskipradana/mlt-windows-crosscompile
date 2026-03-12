@@ -2,17 +2,6 @@
 
 Cross compile [MLT Framework](https://www.mltframework.org/) (`melt.exe`) for Windows from Alpine WSL using mingw-w64.
 
-## Pre-built Binaries
-
-Don't want to build from source? Download the pre-built binaries directly:
-
-> **[Download win-deps.zip — v1.0.0-alpha](https://github.com/friskipradana/mlt-windows-crosscompile/releases/tag/v1.0.0-alpha)**
-
-Extract and run `melt.exe` from the extracted folder.
-
-> ⚠️ **Alpha release** — Path configuration for `lib/mlt` and `share/mlt` may need to be set manually via environment variables. Not yet fully tested on all Windows environments.
-
----
 
 ## Background
 
@@ -389,6 +378,18 @@ make -j$(nproc) && make install
 - `DMOD_JACKRACK=OFF` — JACK audio is not available on Windows
 - fontconfig install uses `make install-data install-exec` instead of `make install` because `fc-cache.exe` cannot run on Linux
 - MLT `lib/mlt` and `share/mlt` paths may need to be set manually via environment variables on Windows
+
+---
+
+## Pre-built Binaries
+
+Don't want to build from source? Download the pre-built binaries directly:
+
+> **[Download win-deps.zip — v1.0.0-alpha](https://github.com/friskipradana/mlt-windows-crosscompile/releases/tag/v1.0.0-alpha)**
+
+Extract and run `melt.exe` from the extracted folder.
+
+> ⚠️ **Alpha release** — Path configuration for `lib/mlt` and `share/mlt` may need to be set manually via environment variables. Not yet fully tested on all Windows environments.
 
 ---
 
