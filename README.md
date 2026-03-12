@@ -1,6 +1,18 @@
-# MLT Cross Compile for Windows (Alpine WSL)
+# MLT Windows Cross Compile (Alpine WSL)
 
 Cross compile [MLT Framework](https://www.mltframework.org/) (`melt.exe`) for Windows from Alpine WSL using mingw-w64.
+
+## Pre-built Binaries
+
+Don't want to build from source? Download the pre-built binaries directly:
+
+> **[Download win-deps.zip — v1.0.0-alpha](https://github.com/friskipradana/mlt-windows-crosscompile/releases/tag/v1.0.0-alpha)**
+
+Extract and run `melt.exe` from the extracted folder.
+
+> ⚠️ **Alpha release** — Path configuration for `lib/mlt` and `share/mlt` may need to be set manually via environment variables. Not yet fully tested on all Windows environments.
+
+---
 
 ## Background
 
@@ -9,13 +21,17 @@ MLT is a multimedia framework primarily designed for Linux. Building it natively
 - Segfault on avformat consumer
 - XML + consumer crash
 
-This guide cross compiles MLT from Alpine WSL, producing a stable `melt.exe` for Windows.
+This guide cross compiles MLT from Alpine WSL using mingw-w64, producing a stable `melt.exe` for Windows.
+
+---
 
 ## Requirements
 
-- Windows 11/10 with WSL2
+- Windows 10/11 with WSL2
 - Alpine Linux WSL
 - Internet connection
+
+---
 
 ## Setup Alpine WSL
 
@@ -24,7 +40,7 @@ This guide cross compiles MLT from Alpine WSL, producing a stable `melt.exe` for
 apk add \
   mingw-w64-gcc mingw-w64-binutils mingw-w64-headers \
   mingw-w64-crt mingw-w64-winpthreads \
-  cmake make ninja meson \
+  cmake make ninja \
   nasm yasm \
   pkgconfig \
   python3 perl \
@@ -32,49 +48,43 @@ apk add \
   gettext-dev gperf \
   git wget
 
-# Install meson latest via pip
+# Install latest meson via pip
 pip3 install meson
 export PATH="$HOME/.local/bin:$PATH"
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile
 ```
 
+---
+
 ## Directory Structure
 
 ```
 ~/tools/
-├── src/          ← source code semua dependency
-├── win-deps/     ← hasil build (DLL, headers, libs)
-└── mingw-cross.ini  ← meson cross file
+├── src/             ← dependency source code
+├── win-deps/        ← build output (DLLs, headers, libs)
+└── mingw-cross.ini  ← auto-generated meson cross file
 ```
 
 ```bash
 mkdir -p ~/tools/src ~/tools/win-deps
 ```
 
-## Meson Cross File
+---
 
-Buat file `~/tools/mingw-cross.ini`:
+## Build All (Automated)
 
-```ini
-[binaries]
-c = 'x86_64-w64-mingw32-gcc'
-cpp = 'x86_64-w64-mingw32-g++'
-ar = 'x86_64-w64-mingw32-ar'
-strip = 'x86_64-w64-mingw32-strip'
-windres = 'x86_64-w64-mingw32-windres'
-pkgconfig = 'pkg-config'
+The easiest way — run the build script and everything will be built automatically:
 
-[host_machine]
-system = 'windows'
-cpu_family = 'x86_64'
-cpu = 'x86_64'
-endian = 'little'
-
-[properties]
-pkg_config_libdir = '/home/YOUR_USER/tools/win-deps/lib/pkgconfig'
+```bash
+chmod +x build-all.sh
+./build-all.sh
 ```
 
-## Build Dependencies
+This will build all dependencies and MLT in the correct order.
+
+---
+
+## Manual Build Steps
 
 ### 1. zlib
 ```bash
@@ -186,7 +196,8 @@ tar -xzf fontconfig-2.15.0.tar.gz && cd fontconfig-2.15.0
   --enable-shared --disable-static \
   PKG_CONFIG_PATH=~/tools/win-deps/lib/pkgconfig
 make -j$(nproc)
-make install-data install-exec  # skip fc-cache karena tidak bisa run di Linux
+# Use install-data + install-exec to skip fc-cache (cannot run on Linux)
+make install-data install-exec
 ```
 
 ### 9. harfbuzz
@@ -338,16 +349,11 @@ cmake .. \
 make -j$(nproc) && make install
 ```
 
-## Build MLT
-
+### 19. MLT
 ```bash
 cd ~/tools/src
 git clone https://github.com/mltframework/mlt.git mlt-win
 cd mlt-win
-
-# Fix io.c untuk Alpine musl libc
-sed -i '1s/^/#include <sys\/select.h>\n/' src/melt/io.c
-
 mkdir build && cd build
 cmake .. \
   -DCMAKE_SYSTEM_NAME=Windows \
@@ -371,30 +377,20 @@ cmake .. \
   -DMOD_RTAUDIO=OFF \
   -DMOD_SWIG=OFF \
   -DENABLE_CLANG_FORMAT=OFF
-
 make -j$(nproc) && make install
 ```
 
-## Test di Windows
-
-Copy hasil build ke Windows:
-```bash
-cp -r ~/tools/win-deps /mnt/c/Users/YOUR_USER/Desktop/mlt-windows
-```
-
-Test di PowerShell:
-```powershell
-cd C:\Users\YOUR_USER\Desktop\mlt-windows
-.\melt.exe --version
-```
+---
 
 ## Known Issues
 
-- `MOD_QT6=OFF` — Qt6 cross compile tidak didukung, gunakan `DMOD_QT6=OFF`
-- `MOD_GDK=OFF` — GDK/GTK cross compile bermasalah
-- `MOD_JACKRACK=OFF` — JACK tidak tersedia di Windows
-- `io.c` perlu patch `#include <sys/select.h>` untuk Alpine musl libc
-- fontconfig install dengan `make install-data install-exec` bukan `make install` karena `fc-cache.exe` tidak bisa run di Linux
+- `DMOD_QT6=OFF` — Qt6 cross compile is not supported, must be disabled
+- `DMOD_GDK=OFF` — GDK/GTK cross compile has unresolved issues
+- `DMOD_JACKRACK=OFF` — JACK audio is not available on Windows
+- fontconfig install uses `make install-data install-exec` instead of `make install` because `fc-cache.exe` cannot run on Linux
+- MLT `lib/mlt` and `share/mlt` paths may need to be set manually via environment variables on Windows
+
+---
 
 ## License
 
