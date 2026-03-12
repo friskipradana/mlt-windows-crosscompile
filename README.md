@@ -12,7 +12,6 @@ MLT is a multimedia framework primarily designed for Linux. Building it natively
 
 This guide cross compiles MLT from Alpine WSL using mingw-w64, producing a stable `melt.exe` for Windows.
 
----
 
 ## Requirements
 
@@ -20,7 +19,6 @@ This guide cross compiles MLT from Alpine WSL using mingw-w64, producing a stabl
 - Alpine Linux WSL
 - Internet connection
 
----
 
 ## Setup Alpine WSL
 
@@ -43,7 +41,6 @@ export PATH="$HOME/.local/bin:$PATH"
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile
 ```
 
----
 
 ## Directory Structure
 
@@ -58,7 +55,6 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile
 mkdir -p ~/tools/src ~/tools/win-deps
 ```
 
----
 
 ## Build All (Automated)
 
