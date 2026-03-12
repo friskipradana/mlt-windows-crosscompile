@@ -389,4 +389,9 @@ Extract and run `melt.exe` from the extracted folder.
 
 ## License
 
-MLT Framework is licensed under LGPLv2.1. See [MLT License](https://www.mltframework.org/license/).
+This repository is licensed under the GNU General Public License v3.0 (GPLv3).
+
+This project contains build scripts used to compile MLT Framework and its dependencies.
+
+MLT Framework itself is licensed under the LGPLv2.1.
+See https://mltframework.org for details.
