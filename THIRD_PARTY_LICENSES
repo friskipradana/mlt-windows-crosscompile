@@ -1,0 +1,46 @@
+Third Party Licenses
+
+This repository provides build scripts used to compile several open-source
+libraries required by the MLT multimedia framework.
+
+The produced binaries include software from the following projects.
+
+MLT Framework
+License: LGPLv2.1
+https://mltframework.org
+
+FFmpeg
+License: LGPLv2.1 / GPL
+https://ffmpeg.org
+
+SDL2
+License: zlib License
+https://libsdl.org
+
+x264
+License: GPLv2
+https://www.videolan.org/developers/x264.html
+
+Fontconfig
+License: MIT License
+https://www.freedesktop.org/wiki/Software/fontconfig/
+
+FreeType
+License: FreeType License
+https://freetype.org
+
+GLib
+License: LGPLv2.1
+https://developer.gnome.org/glib/
+
+libxml2
+License: MIT License
+http://xmlsoft.org
+
+zlib
+License: zlib License
+https://zlib.net
+
+All third-party software remains under their respective licenses.
+This repository only provides build scripts and does not claim ownership
+of these projects.
