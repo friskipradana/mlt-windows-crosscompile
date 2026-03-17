@@ -379,7 +379,7 @@ make -j$(nproc) && make install
 
 Don't want to build from source? Download the pre-built binaries directly:
 
-> **[Download win-deps.zip — v1.0.0-alpha](https://github.com/friskipradana/mlt-windows-crosscompile/releases/tag/v1.0.0-alpha)**
+> **[Download pre-built binaries releases](https://github.com/friskipradana/mlt-windows-crosscompile/releases)**
 
 Extract and run `melt.exe` from the extracted folder.
 
