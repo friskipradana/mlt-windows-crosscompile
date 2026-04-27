@@ -10,16 +10,8 @@ CROSS="x86_64-w64-mingw32"
 CROSS_FILE="$HOME/tools/mingw-cross.ini"
 JOBS=$(nproc)
 
-#export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
-#export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
-
-export PKG_CONFIG_DIR=
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
-export PKG_CONFIG_SYSROOT_DIR="$PREFIX"
-export PKG_CONFIG_ALLOW_SYSTEM_LIBS=0
-export PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=0
-
 
 mkdir -p "$SRC" "$PREFIX"
 
@@ -421,11 +413,9 @@ build_sdl2
 build_libexif
 build_libebur128
 build_dlfcn
-
 debug_env
 debug_tree
 debug_pkg 
-
 build_mlt
 
 echo ""
