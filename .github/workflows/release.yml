@@ -14,14 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
+    env:
+      JOBS: 1
+      MAKEFLAGS: -j1
+
     steps:
-      # ── 1. Checkout repo ──────────────────────────────────────────────────
+      # ── 1. Checkout ─────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Install build tools ────────────────────────────────────────────
+      # ── 2. Install build tools ──────────────────────────────────
       - name: Install build tools
         run: |
+          set -ex
           sudo apt-get update -qq
           sudo apt-get install -y \
             gcc-mingw-w64-x86-64 \
@@ -31,25 +36,44 @@ jobs:
             meson nasm yasm \
             pkg-config autoconf automake \
             libtool gettext gperf \
-            git wget \
-            librubberband-dev
+            git wget
 
-      # ── 3. Cache win-deps ─────────────────────────────────────────────────
-      - name: Cache win-deps
+      # ── 3. Cache deps + sources (PENTING) ───────────────────────
+      - name: Cache build data
         uses: actions/cache@v4
         with:
-          path: ~/tools/win-deps
-          key: win-deps-${{ hashFiles('build-all.sh') }}
+          path: |
+            ~/tools/win-deps
+            ~/tools/src
+          key: mlt-${{ runner.os }}-${{ hashFiles('build-all.sh') }}
 
-      # ── 4. Build ──────────────────────────────────────────────────────────
+      # ── 4. Setup retry helper ───────────────────────────────────
+      - name: Setup retry helper
+        run: |
+          cat << 'EOF' >> retry.sh
+          retry() {
+            for i in 1 2 3; do
+              "$@" && return 0
+              echo "Retry $i..."
+              sleep 2
+            done
+            return 1
+          }
+          EOF
+
+      # ── 5. Build ────────────────────────────────────────────────
       - name: Build
         run: |
+          set -ex
           chmod +x build-all.sh
+          export JOBS=1
+          export MAKEFLAGS=-j1
           ./build-all.sh
 
-      # ── 5. Package ────────────────────────────────────────────────────────
+      # ── 6. Package ──────────────────────────────────────────────
       - name: Package release
         run: |
+          set -ex
           mkdir -p release-output
           PREFIX="$HOME/tools/win-deps"
 
@@ -62,7 +86,7 @@ jobs:
           zip -r ../mlt-windows.zip .
           ls -lh ../mlt-windows.zip
 
-      # ── 6. Upload artifact (manual trigger / testing) ─────────────────────
+      # ── 7. Upload artifact ──────────────────────────────────────
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
@@ -71,7 +95,7 @@ jobs:
           path: mlt-windows.zip
           retention-days: 7
 
-      # ── 7. Upload ke GitHub Releases (push tag) ───────────────────────────
+      # ── 8. Release ──────────────────────────────────────────────
       - name: Upload to GitHub Releases
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -79,11 +103,7 @@ jobs:
           files: mlt-windows.zip
           body: |
             ## MLT Windows Build ${{ github.ref_name }}
-            Cross-compiled from Ubuntu using mingw-w64.
+            Cross-compiled using mingw-w64.
 
-            ### Cara pakai
-            1. Extract zip
-            2. Jalankan `melt.exe` dari folder hasil extract
-
-            > ⚠️ Alpha release — path `lib/mlt` dan `share/mlt`
-            > mungkin perlu di-set manual via environment variable.
+            ⚠️ Alpha build:
+            - Set path untuk lib/mlt & share/mlt jika diperlukan
