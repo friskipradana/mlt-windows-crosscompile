@@ -312,6 +312,20 @@ build_dlfcn() {
 
 # ─── 19. MLT ────────────────────────────────────────────────────────────────
 build_mlt() {
+
+  echo "==== DEBUG RUBBERBAND ===="
+  echo "PREFIX=$PREFIX"
+
+  echo "== pkgconfig dir =="
+  ls -lah $PREFIX/lib/pkgconfig || true
+
+  echo "== grep rubberband =="
+  ls $PREFIX/lib/pkgconfig | grep rubberband || echo "❌ rubberband.pc NOT FOUND"
+
+  echo "== pkg-config test =="
+  PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" pkg-config --modversion rubberband || echo "❌ pkg-config gagal"
+
+
   echo ">>> Building MLT..."
   cd "$SRC"
   git clone https://github.com/mltframework/mlt.git mlt-win
