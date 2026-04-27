@@ -1,6 +1,6 @@
 #!/bin/bash
 # build-all.sh - Cross compile MLT for Windows from Alpine WSL
-# Usage: ./build-all.sh
+# Usage: ./build-all-alpine.sh
 
 set -e
 
@@ -48,16 +48,7 @@ cmake_build() {
     -DCMAKE_CXX_COMPILER=$CROSS-g++ \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_PREFIX_PATH="$PREFIX" \
-    -DPKG_CONFIG_EXECUTABLE=$(which pkg-config) \
-    -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
-    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
-    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-    -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
     -DBUILD_SHARED_LIBS=ON \
-    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
     "$@"
   make -j$JOBS && make install
   cd "$SRC"
@@ -219,52 +210,17 @@ build_libsamplerate() {
 }
 
 # ─── 12. rubberband ─────────────────────────────────────────────────────────
-# build_rubberband() {
-#   echo ">>> Building rubberband..."
-#   cd "$SRC"
-#   wget -q https://breakfastquay.com/files/releases/rubberband-3.3.0.tar.bz2
-#   tar -xjf rubberband-3.3.0.tar.bz2
-#   mkdir -p rubberband-3.3.0/build && cd rubberband-3.3.0/build
-#   meson setup .. \
-#     --prefix="$PREFIX" \
-#     --cross-file "$CROSS_FILE" \
-#     -Dfft=builtin -Dresampler=builtin
-#   ninja -j$JOBS && ninja install
-#   cd "$SRC"
-#   echo "[OK] rubberband"
-# }
-
 build_rubberband() {
   echo ">>> Building rubberband..."
-
   cd "$SRC"
-  rm -rf rubberband-3.3.0
   wget -q https://breakfastquay.com/files/releases/rubberband-3.3.0.tar.bz2
   tar -xjf rubberband-3.3.0.tar.bz2
-
-  cd rubberband-3.3.0
-  rm -rf build
-
-  meson setup build \
+  mkdir -p rubberband-3.3.0/build && cd rubberband-3.3.0/build
+  meson setup .. \
     --prefix="$PREFIX" \
     --cross-file "$CROSS_FILE" \
-    -Dfft=builtin \
-    -Dresampler=builtin \
-    -Ddefault_library=static \
-    -Djni=disabled \
-    -Dladspa=disabled \
-    -Dlv2=disabled \
-    -Dvamp=disabled
-
-  ninja -C build -j$JOBS || exit 1
-  ninja -C build install || exit 1
-
-  # 🔍 VALIDASI (penting)
-  if [ ! -f "$PREFIX/lib/pkgconfig/rubberband.pc" ]; then
-    echo "❌ rubberband.pc not found!"
-    exit 1
-  fi
-
+    -Dfft=builtin -Dresampler=builtin
+  ninja -j$JOBS && ninja install
   cd "$SRC"
   echo "[OK] rubberband"
 }
@@ -349,72 +305,23 @@ build_dlfcn() {
 }
 
 # ─── 19. MLT ────────────────────────────────────────────────────────────────
-# build_mlt() {
-#   echo ">>> Building MLT..."
-#   cd "$SRC"
-#   git clone https://github.com/mltframework/mlt.git mlt-win
-#   cd mlt-win
-#   mkdir -p build && cd build
-#   cmake .. \
-#     -DCMAKE_SYSTEM_NAME=Windows \
-#     -DCMAKE_C_COMPILER=$CROSS-gcc \
-#     -DCMAKE_CXX_COMPILER=$CROSS-g++ \
-#     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-#     -DCMAKE_PREFIX_PATH="$PREFIX" \
-#     -DCMAKE_BUILD_TYPE=Release \
-#     -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib" \
-#     -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
-#     -DCMAKE_C_FLAGS="-I$PREFIX/include" \
-#     -DCMAKE_CXX_FLAGS="-I$PREFIX/include" \
-#     -DMOD_QT6=OFF \
-#     -DMOD_MOVIT=OFF \
-#     -DMOD_FREI0R=OFF \
-#     -DMOD_GDK=OFF \
-#     -DMOD_JACKRACK=OFF \
-#     -DMOD_SOX=OFF \
-#     -DMOD_VIDSTAB=OFF \
-#     -DMOD_VORBIS=OFF \
-#     -DMOD_RTAUDIO=OFF \
-#     -DMOD_SWIG=OFF \
-#     -DENABLE_CLANG_FORMAT=OFF
-#   make -j$JOBS && make install
-#   cd "$SRC"
-#   echo "[OK] MLT"
-# }
-
 build_mlt() {
   echo ">>> Building MLT..."
-
   cd "$SRC"
-  rm -rf mlt-win
   git clone https://github.com/mltframework/mlt.git mlt-win
   cd mlt-win
-
   mkdir -p build && cd build
-
-  PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
-  PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" \
-  PKG_CONFIG_SYSROOT_DIR="$PREFIX" \
   cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
-    -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
-    -DCMAKE_CROSSCOMPILING=ON \
     -DCMAKE_C_COMPILER=$CROSS-gcc \
     -DCMAKE_CXX_COMPILER=$CROSS-g++ \
-    -DCMAKE_RC_COMPILER=$CROSS-windres \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_PREFIX_PATH="$PREFIX" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
-    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
-    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
+    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
     -DCMAKE_C_FLAGS="-I$PREFIX/include" \
     -DCMAKE_CXX_FLAGS="-I$PREFIX/include" \
-    -DTHREADS_PREFER_PTHREAD_FLAG=OFF \
-    -DCMAKE_USE_PTHREADS_INIT=OFF \
     -DMOD_QT6=OFF \
     -DMOD_MOVIT=OFF \
     -DMOD_FREI0R=OFF \
@@ -426,21 +333,10 @@ build_mlt() {
     -DMOD_RTAUDIO=OFF \
     -DMOD_SWIG=OFF \
     -DENABLE_CLANG_FORMAT=OFF
-    
-  make -j$JOBS || exit 1
-  make install || exit 1
-
-  # 🔍 VALIDASI WAJIB
-  if [ ! -f "$PREFIX/bin/melt.exe" ]; then
-    echo "❌ melt.exe NOT FOUND"
-    find "$PREFIX" -name "*melt*" || true
-    exit 1
-  fi
-
+  make -j$JOBS && make install
   cd "$SRC"
   echo "[OK] MLT"
 }
-
 
 # ─── MAIN ───────────────────────────────────────────────────────────────────
 echo "================================================"
