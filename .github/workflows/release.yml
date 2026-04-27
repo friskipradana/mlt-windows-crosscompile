@@ -31,7 +31,8 @@ jobs:
             meson nasm yasm \
             pkg-config autoconf automake \
             libtool gettext gperf \
-            git wget
+            git wget \
+            librubberband-dev \
 
       # ── 3. Cache win-deps ─────────────────────────────────────────────────
       - name: Cache win-deps
