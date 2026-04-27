@@ -117,7 +117,10 @@ build_libxml2() {
     -DLIBXML2_WITH_ICONV=ON \
     -DLIBXML2_WITH_ZLIB=ON \
     -DLIBXML2_WITH_LZMA=ON \
-    -DLIBXML2_WITH_PYTHON=OFF
+    -DLIBXML2_WITH_PYTHON=OFF \
+    -DLIBXML2_WITH_MODULES=OFF \
+    -DLIBXML2_WITH_PROGRAMS=OFF \
+    -DLIBXML2_TESTS=OFF
   echo "[OK] libxml2"
 }
 
@@ -392,9 +395,6 @@ build_mlt() {
 
   mkdir -p build && cd build
 
-  PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
-  PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" \
-  PKG_CONFIG_SYSROOT_DIR="$PREFIX" \
   cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
     -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
