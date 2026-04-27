@@ -34,8 +34,6 @@ endian = 'little'
 
 [properties]
 pkg_config_libdir = '$PREFIX/lib/pkgconfig'
-c_link_args = ['-lwinpthread']
-cpp_link_args = ['-lwinpthread']
 EOF
   echo "[OK] Cross file: $CROSS_FILE"
 }
@@ -57,6 +55,9 @@ cmake_build() {
     -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
     -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
     -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
     "$@"
   make -j$JOBS && make install
   cd "$SRC"
@@ -393,6 +394,8 @@ build_mlt() {
 
   cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+    -DCMAKE_CROSSCOMPILING=ON \
     -DCMAKE_C_COMPILER=$CROSS-gcc \
     -DCMAKE_CXX_COMPILER=$CROSS-g++ \
     -DCMAKE_RC_COMPILER=$CROSS-windres \
@@ -405,8 +408,8 @@ build_mlt() {
     -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
     -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
     -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
-    -DCMAKE_C_FLAGS="-I$PREFIX/include -lwinpthread" \
-    -DCMAKE_CXX_FLAGS="-I$PREFIX/include -lwinpthread" \
+    -DCMAKE_C_FLAGS="-I$PREFIX/include" \
+    -DCMAKE_CXX_FLAGS="-I$PREFIX/include" \
     -DTHREADS_PREFER_PTHREAD_FLAG=OFF \
     -DCMAKE_USE_PTHREADS_INIT=OFF \
     -DMOD_QT6=OFF \
@@ -420,7 +423,7 @@ build_mlt() {
     -DMOD_RTAUDIO=OFF \
     -DMOD_SWIG=OFF \
     -DENABLE_CLANG_FORMAT=OFF
-
+    
   make -j$JOBS || exit 1
   make install || exit 1
 
