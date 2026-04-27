@@ -32,7 +32,7 @@ jobs:
             pkg-config autoconf automake \
             libtool gettext gperf \
             git wget \
-            librubberband-dev \
+            librubberband-dev
 
       # ── 3. Cache win-deps ─────────────────────────────────────────────────
       - name: Cache win-deps
