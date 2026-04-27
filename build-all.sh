@@ -317,6 +317,8 @@ build_mlt() {
   git clone https://github.com/mltframework/mlt.git mlt-win
   cd mlt-win
   mkdir -p build && cd build
+  PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \      
+  PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" \ 
   cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
     -DCMAKE_C_COMPILER=$CROSS-gcc \

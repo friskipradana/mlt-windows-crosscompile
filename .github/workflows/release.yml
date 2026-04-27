@@ -23,15 +23,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. System diagnostics (WAJIB untuk debug) ───────────────
-      - name: System Info
+      # ── 2. System info ──────────────────────────────────────────
+      - name: System info
         run: |
-          echo "===== CPU ====="
-          nproc
-          echo "===== MEMORY ====="
-          free -h
-          echo "===== DISK ====="
-          df -h
+          echo "===== CPU =====" && nproc
+          echo "===== RAM =====" && free -h
+          echo "===== DISK ====" && df -h
 
       # ── 3. Install build tools ──────────────────────────────────
       - name: Install build tools
@@ -48,7 +45,13 @@ jobs:
             libtool gettext gperf \
             git wget zip
 
-      # ── 4. Cache deps + sources ─────────────────────────────────
+      # ── 4. Cleanup disk ─────────────────────────────────────────
+      - name: Cleanup disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc || true
+          df -h
+
+      # ── 5. Cache deps ───────────────────────────────────────────
       - name: Cache build data
         uses: actions/cache@v4
         with:
@@ -58,14 +61,6 @@ jobs:
           key: mlt-${{ runner.os }}-${{ hashFiles('build-all.sh') }}
           restore-keys: |
             mlt-${{ runner.os }}-
-
-      # ── 5. Cleanup disk sebelum build ───────────────────────────
-      - name: Cleanup disk space
-        run: |
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /opt/ghc || true
-          df -h
 
       # ── 6. Build ────────────────────────────────────────────────
       - name: Build
@@ -92,7 +87,7 @@ jobs:
           zip -r ../mlt-windows.zip .
           ls -lh ../mlt-windows.zip
 
-      # ── 8. Upload artifact ──────────────────────────────────────
+      # ── 8. Upload artifact (manual trigger) ─────────────────────
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
@@ -101,7 +96,7 @@ jobs:
           path: mlt-windows.zip
           retention-days: 7
 
-      # ── 9. Release ──────────────────────────────────────────────
+      # ── 9. Upload ke GitHub Releases (push tag) ─────────────────
       - name: Upload to GitHub Releases
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
