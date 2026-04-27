@@ -216,17 +216,52 @@ build_libsamplerate() {
 }
 
 # ─── 12. rubberband ─────────────────────────────────────────────────────────
+# build_rubberband() {
+#   echo ">>> Building rubberband..."
+#   cd "$SRC"
+#   wget -q https://breakfastquay.com/files/releases/rubberband-3.3.0.tar.bz2
+#   tar -xjf rubberband-3.3.0.tar.bz2
+#   mkdir -p rubberband-3.3.0/build && cd rubberband-3.3.0/build
+#   meson setup .. \
+#     --prefix="$PREFIX" \
+#     --cross-file "$CROSS_FILE" \
+#     -Dfft=builtin -Dresampler=builtin
+#   ninja -j$JOBS && ninja install
+#   cd "$SRC"
+#   echo "[OK] rubberband"
+# }
+
 build_rubberband() {
   echo ">>> Building rubberband..."
+
   cd "$SRC"
+  rm -rf rubberband-3.3.0
   wget -q https://breakfastquay.com/files/releases/rubberband-3.3.0.tar.bz2
   tar -xjf rubberband-3.3.0.tar.bz2
-  mkdir -p rubberband-3.3.0/build && cd rubberband-3.3.0/build
-  meson setup .. \
+
+  cd rubberband-3.3.0
+  rm -rf build
+
+  meson setup build \
     --prefix="$PREFIX" \
     --cross-file "$CROSS_FILE" \
-    -Dfft=builtin -Dresampler=builtin
-  ninja -j$JOBS && ninja install
+    -Dfft=builtin \
+    -Dresampler=builtin \
+    -Ddefault_library=static \
+    -Djni=disabled \
+    -Dladspa=disabled \
+    -Dlv2=disabled \
+    -Dvamp=disabled
+
+  ninja -C build -j$JOBS || exit 1
+  ninja -C build install || exit 1
+
+  # 🔍 VALIDASI (penting)
+  if [ ! -f "$PREFIX/lib/pkgconfig/rubberband.pc" ]; then
+    echo "❌ rubberband.pc not found!"
+    exit 1
+  fi
+
   cd "$SRC"
   echo "[OK] rubberband"
 }
