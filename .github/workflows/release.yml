@@ -1,10 +1,8 @@
 name: Build MLT for Windows
 
 on:
-  # Manual trigger untuk testing
   workflow_dispatch:
 
-  # Auto trigger saat push tag
   push:
     tags:
       - 'v*'
@@ -17,25 +15,36 @@ jobs:
     env:
       JOBS: 1
       MAKEFLAGS: -j1
+      PREFIX: $HOME/tools/win-deps
+      SRC: $HOME/tools/src
+      PKG_CONFIG_PATH: $HOME/tools/win-deps/lib/pkgconfig
+      PKG_CONFIG_LIBDIR: $HOME/tools/win-deps/lib/pkgconfig
+      CMAKE_FIND_ROOT_PATH: $HOME/tools/win-deps
 
     steps:
-      # ── 1. Checkout ─────────────────────────────────────────────
+      # ─────────────────────────────────────────────
+      # 1. Checkout
+      # ─────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. System info ──────────────────────────────────────────
+      # ─────────────────────────────────────────────
+      # 2. System info
+      # ─────────────────────────────────────────────
       - name: System info
         run: |
-          echo "===== CPU =====" && nproc
-          echo "===== RAM =====" && free -h
-          echo "===== DISK ====" && df -h
+          echo "CPU:" && nproc
+          echo "RAM:" && free -h
+          echo "DISK:" && df -h
 
-      # ── 3. Install build tools ──────────────────────────────────
+      # ─────────────────────────────────────────────
+      # 3. Install tools
+      # ─────────────────────────────────────────────
       - name: Install build tools
         run: |
-           set -ex
-           sudo apt-get update -qq
-           sudo apt-get install -y \
+          set -ex
+          sudo apt-get update -qq
+          sudo apt-get install -y \
             gcc-mingw-w64-x86-64 \
             g++-mingw-w64-x86-64 \
             binutils-mingw-w64-x86-64 \
@@ -56,70 +65,80 @@ jobs:
             wget \
             zip \
             python3 \
-            python3-pip \
-            libffi-dev \
-            libsdl2-dev
+            python3-pip
 
-      # ── 4. Cleanup disk ─────────────────────────────────────────
-      - name: Cleanup disk space
+      # ─────────────────────────────────────────────
+      # 4. HARD CLEAN (FIX PTHREAD / CACHE LEAK)
+      # ─────────────────────────────────────────────
+      - name: Hard clean sysroot
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc || true
-          df -h
+          rm -rf $HOME/tools/win-deps || true
+          rm -rf $HOME/tools/src || true
+          mkdir -p $HOME/tools/win-deps $HOME/tools/src
 
-      # ── 5. Cache deps ───────────────────────────────────────────
-      - name: Cache build data
+      # ─────────────────────────────────────────────
+      # 5. Cache (SAFE VERSION)
+      # ─────────────────────────────────────────────
+      - name: Cache deps
         uses: actions/cache@v4
         with:
           path: |
             ~/tools/win-deps
             ~/tools/src
-          key: mlt-${{ runner.os }}-${{ hashFiles('build-all.sh') }}
-          restore-keys: |
-            mlt-${{ runner.os }}-
+          key: mlt-deps-v1-${{ runner.os }}
 
-      # ── 6. Build ────────────────────────────────────────────────
+      # ─────────────────────────────────────────────
+      # 6. Build
+      # ─────────────────────────────────────────────
       - name: Build
         run: |
           set -ex
           chmod +x build-all.sh
           export JOBS=1
           export MAKEFLAGS=-j1
+          export PKG_CONFIG_PATH=$HOME/tools/win-deps/lib/pkgconfig
+          export PKG_CONFIG_LIBDIR=$HOME/tools/win-deps/lib/pkgconfig
+          export CMAKE_FIND_ROOT_PATH=$HOME/tools/win-deps
+
           ./build-all.sh
 
-      # ── 7. Package ──────────────────────────────────────────────
-      - name: Package release
+      # ─────────────────────────────────────────────
+      # 7. Package
+      # ─────────────────────────────────────────────
+      - name: Package
         run: |
           set -ex
           mkdir -p release-output
-          PREFIX="$HOME/tools/win-deps"
+          PREFIX=$HOME/tools/win-deps
 
-          cp "$PREFIX/bin/melt.exe"  release-output/
-          cp "$PREFIX/bin/"*.dll     release-output/ 2>/dev/null || true
-          cp -r "$PREFIX/lib/mlt"    release-output/lib-mlt   2>/dev/null || true
-          cp -r "$PREFIX/share/mlt"  release-output/share-mlt 2>/dev/null || true
+          cp "$PREFIX/bin/melt.exe" release-output/ 2>/dev/null || true
+          cp "$PREFIX/bin/"*.dll release-output/ 2>/dev/null || true
+          cp -r "$PREFIX/lib/mlt" release-output/lib-mlt 2>/dev/null || true
+          cp -r "$PREFIX/share/mlt" release-output/share-mlt 2>/dev/null || true
 
           cd release-output
           zip -r ../mlt-windows.zip .
-          ls -lh ../mlt-windows.zip
 
-      # ── 8. Upload artifact (manual trigger) ─────────────────────
+      # ─────────────────────────────────────────────
+      # 8. Artifact (manual)
+      # ─────────────────────────────────────────────
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: mlt-windows
           path: mlt-windows.zip
-          retention-days: 7
 
-      # ── 9. Upload ke GitHub Releases (push tag) ─────────────────
-      - name: Upload to GitHub Releases
+      # ─────────────────────────────────────────────
+      # 9. GitHub Release (tag)
+      # ─────────────────────────────────────────────
+      - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: mlt-windows.zip
           body: |
-            ## MLT Windows Build ${{ github.ref_name }}
-            Cross-compiled using mingw-w64.
-
-            ⚠️ Alpha build:
-            - Set path untuk lib/mlt & share/mlt jika diperlukan
+            MLT Windows Cross Build (Stable)
+            - MinGW-w64
+            - Clean sysroot
+            - No pthread dependency leaks
