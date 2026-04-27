@@ -304,56 +304,6 @@ build_dlfcn() {
   echo "[OK] dlfcn-win32"
 }
 
-debug_env() {
-  echo "========== ENV =========="
-  echo "PREFIX=$PREFIX"
-  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
-  echo "PKG_CONFIG_SYSROOT_DIR=$PKG_CONFIG_SYSROOT_DIR"
-  echo "which pkg-config: $(which pkg-config)"
-  pkg-config --version || true
-  echo "========================="
-}
-
-debug_tree() {
-  echo "========== TREE =========="
-
-  echo "--- bin ---"
-  ls -lah $PREFIX/bin || true
-
-  echo "--- lib ---"
-  ls -lah $PREFIX/lib || true
-
-  echo "--- include ---"
-  ls -lah $PREFIX/include || true
-
-  echo "--- pkgconfig ---"
-  find $PREFIX -name "*.pc" || true
-
-  echo "=========================="
-}
-
-debug_pkg() {
-  echo "========== PKG =========="
-
-  echo "--- rubberband.pc location ---"
-  find $PREFIX -name "rubberband.pc" || true
-
-  echo "--- pkg-config list ---"
-  pkg-config --list-all | grep rubberband || true
-
-  echo "--- pkg-config cflags ---"
-  pkg-config --cflags rubberband || true
-
-  echo "--- pkg-config libs ---"
-  pkg-config --libs rubberband || true
-
-  echo "--- pkg-config version ---"
-  pkg-config --modversion rubberband || true
-
-  echo "=========================="
-}
-
 # ─── 19. MLT ────────────────────────────────────────────────────────────────
 build_mlt() {
   echo ">>> Building MLT..."
@@ -413,9 +363,6 @@ build_sdl2
 build_libexif
 build_libebur128
 build_dlfcn
-debug_env
-debug_tree
-debug_pkg 
 build_mlt
 
 echo ""
