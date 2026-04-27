@@ -34,6 +34,8 @@ endian = 'little'
 
 [properties]
 pkg_config_libdir = '$PREFIX/lib/pkgconfig'
+c_link_args = ['-lwinpthread']
+cpp_link_args = ['-lwinpthread']
 EOF
   echo "[OK] Cross file: $CROSS_FILE"
 }
@@ -346,39 +348,67 @@ build_dlfcn() {
 }
 
 # ─── 19. MLT ────────────────────────────────────────────────────────────────
+# build_mlt() {
+#   echo ">>> Building MLT..."
+#   cd "$SRC"
+#   git clone https://github.com/mltframework/mlt.git mlt-win
+#   cd mlt-win
+#   mkdir -p build && cd build
+#   cmake .. \
+#     -DCMAKE_SYSTEM_NAME=Windows \
+#     -DCMAKE_C_COMPILER=$CROSS-gcc \
+#     -DCMAKE_CXX_COMPILER=$CROSS-g++ \
+#     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+#     -DCMAKE_PREFIX_PATH="$PREFIX" \
+#     -DCMAKE_BUILD_TYPE=Release \
+#     -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib" \
+#     -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
+#     -DCMAKE_C_FLAGS="-I$PREFIX/include" \
+#     -DCMAKE_CXX_FLAGS="-I$PREFIX/include" \
+#     -DMOD_QT6=OFF \
+#     -DMOD_MOVIT=OFF \
+#     -DMOD_FREI0R=OFF \
+#     -DMOD_GDK=OFF \
+#     -DMOD_JACKRACK=OFF \
+#     -DMOD_SOX=OFF \
+#     -DMOD_VIDSTAB=OFF \
+#     -DMOD_VORBIS=OFF \
+#     -DMOD_RTAUDIO=OFF \
+#     -DMOD_SWIG=OFF \
+#     -DENABLE_CLANG_FORMAT=OFF
+#   make -j$JOBS && make install
+#   cd "$SRC"
+#   echo "[OK] MLT"
+# }
+
 build_mlt() {
-
-  echo "==== DEBUG RUBBERBAND ===="
-  echo "PREFIX=$PREFIX"
-
-  echo "== pkgconfig dir =="
-  ls -lah $PREFIX/lib/pkgconfig || true
-
-  echo "== grep rubberband =="
-  ls $PREFIX/lib/pkgconfig | grep rubberband || echo "❌ rubberband.pc NOT FOUND"
-
-  echo "== pkg-config test =="
-  PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" pkg-config --modversion rubberband || echo "❌ pkg-config gagal"
-
-
   echo ">>> Building MLT..."
+
   cd "$SRC"
+  rm -rf mlt-win
   git clone https://github.com/mltframework/mlt.git mlt-win
   cd mlt-win
+
   mkdir -p build && cd build
-  PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
-  PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" \
+
   cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
     -DCMAKE_C_COMPILER=$CROSS-gcc \
     -DCMAKE_CXX_COMPILER=$CROSS-g++ \
+    -DCMAKE_RC_COMPILER=$CROSS-windres \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_PREFIX_PATH="$PREFIX" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
-    -DCMAKE_C_FLAGS="-I$PREFIX/include" \
-    -DCMAKE_CXX_FLAGS="-I$PREFIX/include" \
+    -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
+    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
+    -DCMAKE_C_FLAGS="-I$PREFIX/include -lwinpthread" \
+    -DCMAKE_CXX_FLAGS="-I$PREFIX/include -lwinpthread" \
+    -DTHREADS_PREFER_PTHREAD_FLAG=OFF \
+    -DCMAKE_USE_PTHREADS_INIT=OFF \
     -DMOD_QT6=OFF \
     -DMOD_MOVIT=OFF \
     -DMOD_FREI0R=OFF \
@@ -390,10 +420,21 @@ build_mlt() {
     -DMOD_RTAUDIO=OFF \
     -DMOD_SWIG=OFF \
     -DENABLE_CLANG_FORMAT=OFF
-  make -j$JOBS && make install
+
+  make -j$JOBS || exit 1
+  make install || exit 1
+
+  # 🔍 VALIDASI WAJIB
+  if [ ! -f "$PREFIX/bin/melt.exe" ]; then
+    echo "❌ melt.exe NOT FOUND"
+    find "$PREFIX" -name "*melt*" || true
+    exit 1
+  fi
+
   cd "$SRC"
   echo "[OK] MLT"
 }
+
 
 # ─── MAIN ───────────────────────────────────────────────────────────────────
 echo "================================================"

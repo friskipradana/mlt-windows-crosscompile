@@ -33,17 +33,32 @@ jobs:
       # ── 3. Install build tools ──────────────────────────────────
       - name: Install build tools
         run: |
-          set -ex
-          sudo apt-get update -qq
-          sudo apt-get install -y \
+           set -ex
+           sudo apt-get update -qq
+           sudo apt-get install -y \
             gcc-mingw-w64-x86-64 \
             g++-mingw-w64-x86-64 \
             binutils-mingw-w64-x86-64 \
-            cmake make ninja-build \
-            meson nasm yasm \
-            pkg-config autoconf automake \
-            libtool gettext gperf \
-            git wget zip
+            mingw-w64 \
+            cmake \
+            make \
+            ninja-build \
+            meson \
+            nasm \
+            yasm \
+            pkg-config \
+            autoconf \
+            automake \
+            libtool \
+            gettext \
+            gperf \
+            git \
+            wget \
+            zip \
+            python3 \
+            python3-pip \
+            libffi-dev \
+            libsdl2-dev
 
       # ── 4. Cleanup disk ─────────────────────────────────────────
       - name: Cleanup disk space
