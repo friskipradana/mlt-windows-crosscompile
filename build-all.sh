@@ -11,8 +11,12 @@ CROSS_FILE="$HOME/tools/mingw-cross.ini"
 # GitHub Actions biasanya 2-4 core, jangan pakai semua atau bisa OOM
 JOBS=$(( $(nproc) > 2 ? $(nproc) - 1 : 2 ))
 
-export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
-export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
+export MESON_ALLOW_DOWNLOAD=1
+export PKG_CONFIG_SYSROOT_DIR="$PREFIX"
+
+export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
+export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
+export PKG_CONFIG_SYSROOT_DIR="$PREFIX"
 
 # Propagate flags ke semua build
 export CFLAGS="-I$PREFIX/include"
@@ -216,7 +220,10 @@ build_pcre2() {
     -DPCRE2_BUILD_PCRE2_32=ON \
     -DPCRE2_SUPPORT_UNICODE=ON \
     -DPCRE2_BUILD_TESTS=OFF \
-    -DPCRE2_BUILD_PCRE2GREP=OFF
+    -DPCRE2_BUILD_PCRE2GREP=OFF \
+    -DBUILD_SHARED_LIBS=ON \
+    -DBUILD_STATIC_LIBS=OFF \
+    -DBUILD_TESTING=OFF
   echo "[OK] pcre2"
 }
 
@@ -234,8 +241,7 @@ build_glib() {
     -Dglib_assert=false \
     -Dglib_checks=false \
     -Dlibmount=disabled \
-    -Dpcre2=external \
-    --wrap-mode=forcefallback
+    -Dforce_posix_threads=true
   echo "[OK] glib"
 }
 
