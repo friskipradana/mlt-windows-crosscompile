@@ -2,7 +2,6 @@ name: Build MLT for Windows
 
 on:
   workflow_dispatch:
-
   push:
     tags:
       - 'v*'
@@ -11,15 +10,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 360
-
-    env:
-      JOBS: 1
-      MAKEFLAGS: -j1
-      PREFIX: $HOME/tools/win-deps
-      SRC: $HOME/tools/src
-      PKG_CONFIG_PATH: $HOME/tools/win-deps/lib/pkgconfig
-      PKG_CONFIG_LIBDIR: $HOME/tools/win-deps/lib/pkgconfig
-      CMAKE_FIND_ROOT_PATH: $HOME/tools/win-deps
 
     steps:
       # ─────────────────────────────────────────────
@@ -33,9 +23,9 @@ jobs:
       # ─────────────────────────────────────────────
       - name: System info
         run: |
-          echo "CPU:" && nproc
-          echo "RAM:" && free -h
-          echo "DISK:" && df -h
+          echo "===== CPU =====" && nproc
+          echo "===== RAM =====" && free -h
+          echo "===== DISK ====" && df -h
 
       # ─────────────────────────────────────────────
       # 3. Install tools
@@ -68,59 +58,114 @@ jobs:
             python3-pip
 
       # ─────────────────────────────────────────────
-      # 4. HARD CLEAN (FIX PTHREAD / CACHE LEAK)
-      # ─────────────────────────────────────────────
-      - name: Hard clean sysroot
-        run: |
-          rm -rf $HOME/tools/win-deps || true
-          rm -rf $HOME/tools/src || true
-          mkdir -p $HOME/tools/win-deps $HOME/tools/src
-
-      # ─────────────────────────────────────────────
-      # 5. Cache (SAFE VERSION)
+      # 4. Cache deps
+      # FIX: Cache harus SEBELUM hard clean, bukan sesudah.
+      # Kalau hard clean dulu, cache tidak ada gunanya sama sekali.
+      # Key pakai hash build script supaya cache otomatis invalid
+      # kalau scriptnya berubah.
       # ─────────────────────────────────────────────
       - name: Cache deps
+        id: cache-deps
         uses: actions/cache@v4
         with:
           path: |
             ~/tools/win-deps
             ~/tools/src
-          key: mlt-deps-v1-${{ runner.os }}
+          key: mlt-deps-v1-${{ runner.os }}-${{ hashFiles('build-all.sh') }}
+          restore-keys: |
+            mlt-deps-v1-${{ runner.os }}-
 
       # ─────────────────────────────────────────────
-      # 6. Build
+      # 5. Init dirs (hanya kalau cache miss)
+      # FIX: Jangan hard clean kalau cache baru di-restore,
+      # karena itu akan membuang cache yang baru saja diambil.
+      # Cukup mkdir kalau folder belum ada.
+      # ─────────────────────────────────────────────
+      - name: Init dirs
+        run: |
+          mkdir -p $HOME/tools/win-deps/lib \
+                   $HOME/tools/win-deps/bin \
+                   $HOME/tools/win-deps/include \
+                   $HOME/tools/src
+
+      # ─────────────────────────────────────────────
+      # 6. Copy pthread dari toolchain sysroot
+      # FIX: Ini harus selalu dijalankan setiap run karena
+      # pthread berasal dari apt (bukan dari cache).
+      # Tanpa ini MLT error: No rule to make target 'libpthread.dll.a'
+      # ─────────────────────────────────────────────
+      - name: Setup pthread
+        run: |
+          set -ex
+          SYSROOT_LIB="/usr/x86_64-w64-mingw32/lib"
+          PREFIX="$HOME/tools/win-deps"
+
+          echo ">>> Pthread files di sysroot:"
+          ls "$SYSROOT_LIB"/libpthread* "$SYSROOT_LIB"/libwinpthread* 2>/dev/null || true
+
+          for f in libpthread.a libpthread.dll.a libwinpthread.a libwinpthread.dll.a; do
+            if [ -f "$SYSROOT_LIB/$f" ]; then
+              cp "$SYSROOT_LIB/$f" "$PREFIX/lib/"
+              echo "  [copied] $f"
+            fi
+          done
+
+          # Symlink kalau libpthread tidak ada tapi libwinpthread ada
+          if [ ! -f "$PREFIX/lib/libpthread.dll.a" ] && \
+             [ -f "$PREFIX/lib/libwinpthread.dll.a" ]; then
+            ln -sf "$PREFIX/lib/libwinpthread.dll.a" \
+                   "$PREFIX/lib/libpthread.dll.a"
+            echo "  [symlink] libpthread.dll.a -> libwinpthread.dll.a"
+          fi
+
+          echo ">>> Hasil:"
+          ls "$PREFIX/lib/"*pthread* || echo "WARNING: tidak ada file pthread!"
+
+      # ─────────────────────────────────────────────
+      # 7. Build
       # ─────────────────────────────────────────────
       - name: Build
         run: |
-          set -ex
-          chmod +x build-all.sh
-          export JOBS=1
-          export MAKEFLAGS=-j1
-          export PKG_CONFIG_PATH=$HOME/tools/win-deps/lib/pkgconfig
-          export PKG_CONFIG_LIBDIR=$HOME/tools/win-deps/lib/pkgconfig
-          export CMAKE_FIND_ROOT_PATH=$HOME/tools/win-deps
-
-          ./build-all.sh
+         set -ex
+         chmod +x build-all.sh
+         ./build-all.sh
 
       # ─────────────────────────────────────────────
-      # 7. Package
+      # 8. Validasi output
+      # ─────────────────────────────────────────────
+      - name: Validate output
+        run: |
+          PREFIX="$HOME/tools/win-deps"
+          echo "=== Checking melt.exe ==="
+          ls -lh "$PREFIX/bin/melt.exe" || { echo "❌ melt.exe NOT FOUND"; exit 1; }
+
+          echo "=== DLLs ==="
+          ls "$PREFIX/bin/"*.dll | wc -l
+
+          echo "=== MLT modules ==="
+          ls "$PREFIX/lib/mlt/" 2>/dev/null || echo "WARNING: lib/mlt tidak ditemukan"
+
+      # ─────────────────────────────────────────────
+      # 9. Package
       # ─────────────────────────────────────────────
       - name: Package
         run: |
           set -ex
+          PREFIX="$HOME/tools/win-deps"
           mkdir -p release-output
-          PREFIX=$HOME/tools/win-deps
 
-          cp "$PREFIX/bin/melt.exe" release-output/ 2>/dev/null || true
-          cp "$PREFIX/bin/"*.dll release-output/ 2>/dev/null || true
-          cp -r "$PREFIX/lib/mlt" release-output/lib-mlt 2>/dev/null || true
-          cp -r "$PREFIX/share/mlt" release-output/share-mlt 2>/dev/null || true
+          cp "$PREFIX/bin/melt.exe"   release-output/ 2>/dev/null || true
+          cp "$PREFIX/bin/"*.dll      release-output/ 2>/dev/null || true
+          cp -r "$PREFIX/lib/mlt"     release-output/lib-mlt    2>/dev/null || true
+          cp -r "$PREFIX/share/mlt"   release-output/share-mlt  2>/dev/null || true
 
           cd release-output
           zip -r ../mlt-windows.zip .
+          echo "=== Package size ==="
+          ls -lh ../mlt-windows.zip
 
       # ─────────────────────────────────────────────
-      # 8. Artifact (manual)
+      # 10. Upload artifact (manual dispatch)
       # ─────────────────────────────────────────────
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
@@ -130,7 +175,7 @@ jobs:
           path: mlt-windows.zip
 
       # ─────────────────────────────────────────────
-      # 9. GitHub Release (tag)
+      # 11. GitHub Release (tag push)
       # ─────────────────────────────────────────────
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -138,7 +183,6 @@ jobs:
         with:
           files: mlt-windows.zip
           body: |
-            MLT Windows Cross Build (Stable)
-            - MinGW-w64
-            - Clean sysroot
-            - No pthread dependency leaks
+            MLT Windows Cross Build
+            - Ubuntu + MinGW-w64
+            - Built from: ${{ github.sha }}
