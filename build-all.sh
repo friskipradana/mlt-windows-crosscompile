@@ -234,6 +234,7 @@ build_glib() {
     -Dglib_assert=false \
     -Dglib_checks=false \
     -Dlibmount=disabled \
+    -Dpcre2=external \
     --wrap-mode=forcefallback
   echo "[OK] glib"
 }
