@@ -50,23 +50,54 @@ endian = 'little'
 
 [properties]
 pkg_config_libdir = '$PREFIX/lib/pkgconfig'
-EOF
-  echo "[OK] Cross file: $CROSS_FILE"
+needs_exe_wrapper = true
 
-  # FIX: Copy pthread dari toolchain sysroot supaya selalu tersedia
-  echo ">>> Copying pthread dari toolchain sysroot..."
+c_args = ['-I$PREFIX/include']
+c_link_args = ['-L$PREFIX/lib']
+cpp_args = ['-I$PREFIX/include']
+cpp_link_args = ['-L$PREFIX/lib']
+EOF
+
+  echo "[OK] Cross file: $CROSS_FILE"
+}
+
+setup_pthread_lib() {
+  echo ">>> Copying pthread libs..."
+
   SYSROOT_LIB="/usr/x86_64-w64-mingw32/lib"
+
   for f in libpthread.a libpthread.dll.a libwinpthread.a libwinpthread.dll.a; do
     if [ -f "$SYSROOT_LIB/$f" ]; then
       cp "$SYSROOT_LIB/$f" "$PREFIX/lib/"
       echo "  [copied] $f"
     fi
   done
-  # Symlink libwinpthread -> libpthread kalau perlu
+
+  # symlink fallback
   if [ ! -f "$PREFIX/lib/libpthread.dll.a" ] && [ -f "$PREFIX/lib/libwinpthread.dll.a" ]; then
     ln -sf "$PREFIX/lib/libwinpthread.dll.a" "$PREFIX/lib/libpthread.dll.a"
     echo "  [symlink] libpthread.dll.a -> libwinpthread.dll.a"
   fi
+}
+
+setup_pthread_dll() {
+  echo ">>> Copying winpthread runtime DLL..."
+
+  SYSROOT_BIN="/usr/x86_64-w64-mingw32/bin"
+
+  if [ -f "$SYSROOT_BIN/libwinpthread-1.dll" ]; then
+    cp "$SYSROOT_BIN/libwinpthread-1.dll" "$PREFIX/bin/"
+    echo "  [copied] libwinpthread-1.dll"
+  else
+    echo "  [ERROR] libwinpthread-1.dll tidak ditemukan!"
+  fi
+}
+
+
+setup_cross_env() {
+  setup_crossfile
+  setup_pthread_lib
+  setup_pthread_dll
 }
 
 # ─── cmake helper ───────────────────────────────────────────────────────────
@@ -131,6 +162,7 @@ meson_build() {
     --prefix="$PREFIX" \
     --cross-file "$CROSS_FILE" \
     --default-library=shared \
+    --pkg-config-path="$PREFIX/lib/pkgconfig" \
     "$@"
   ninja -j$JOBS && ninja install
   touch "$SRC/$dir/.build_done"
@@ -189,6 +221,7 @@ build_libxml2() {
   echo "[OK] libxml2"
 }
 
+
 # ─── 5. glib ────────────────────────────────────────────────────────────────
 build_glib() {
   echo ">>> Building glib..."
@@ -200,7 +233,7 @@ build_glib() {
     glib-2.78.0.tar.xz
   [ -d glib-2.78.0 ] || tar -xf glib-2.78.0.tar.xz
   meson_build glib-2.78.0 \
-    --wrap-mode=nodownload \
+    --wrap-mode=default \
     -Dtests=false \
     -Dinstalled_tests=false
   echo "[OK] glib"
@@ -486,7 +519,7 @@ for pkg in mingw-w64-gcc meson ninja cmake pkgconf git wget; do
   fi
 done
 
-setup_crossfile
+setup_cross_env
 
 build_zlib
 build_libiconv

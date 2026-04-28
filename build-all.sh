@@ -38,7 +38,6 @@ download_if_missing() {
 
 # ─── Meson cross file ───────────────────────────────────────────────────────
 setup_crossfile() {
-  mkdir -p "$(dirname "$CROSS_FILE")"
   cat > "$CROSS_FILE" << EOF
 [binaries]
 c = '$CROSS-gcc'
@@ -56,25 +55,54 @@ endian = 'little'
 
 [properties]
 pkg_config_libdir = '$PREFIX/lib/pkgconfig'
-EOF
-  echo "[OK] Cross file: $CROSS_FILE"
+needs_exe_wrapper = true
 
-  # ─── FIX UTAMA: Copy pthread dari toolchain sysroot ───────────────────────
-  # Ubuntu: /usr/x86_64-w64-mingw32/lib/
-  # Tanpa ini MLT akan error: No rule to make target 'libpthread.dll.a'
-  echo ">>> Copying pthread dari toolchain sysroot..."
+c_args = ['-I$PREFIX/include']
+c_link_args = ['-L$PREFIX/lib']
+cpp_args = ['-I$PREFIX/include']
+cpp_link_args = ['-L$PREFIX/lib']
+EOF
+
+  echo "[OK] Cross file: $CROSS_FILE"
+}
+
+setup_pthread_lib() {
+  echo ">>> Copying pthread libs..."
+
   SYSROOT_LIB="/usr/x86_64-w64-mingw32/lib"
+
   for f in libpthread.a libpthread.dll.a libwinpthread.a libwinpthread.dll.a; do
     if [ -f "$SYSROOT_LIB/$f" ]; then
       cp "$SYSROOT_LIB/$f" "$PREFIX/lib/"
       echo "  [copied] $f"
     fi
   done
-  # Symlink libwinpthread -> libpthread kalau nama beda
+
+  # symlink fallback
   if [ ! -f "$PREFIX/lib/libpthread.dll.a" ] && [ -f "$PREFIX/lib/libwinpthread.dll.a" ]; then
     ln -sf "$PREFIX/lib/libwinpthread.dll.a" "$PREFIX/lib/libpthread.dll.a"
     echo "  [symlink] libpthread.dll.a -> libwinpthread.dll.a"
   fi
+}
+
+setup_pthread_dll() {
+  echo ">>> Copying winpthread runtime DLL..."
+
+  SYSROOT_BIN="/usr/x86_64-w64-mingw32/bin"
+
+  if [ -f "$SYSROOT_BIN/libwinpthread-1.dll" ]; then
+    cp "$SYSROOT_BIN/libwinpthread-1.dll" "$PREFIX/bin/"
+    echo "  [copied] libwinpthread-1.dll"
+  else
+    echo "  [ERROR] libwinpthread-1.dll tidak ditemukan!"
+  fi
+}
+
+
+setup_cross_env() {
+  setup_crossfile
+  setup_pthread_lib
+  setup_pthread_dll
 }
 
 # ─── cmake helper ───────────────────────────────────────────────────────────
@@ -145,7 +173,7 @@ meson_build() {
     --prefix="$PREFIX" \
     --cross-file "$CROSS_FILE" \
     --default-library=shared \
-    --wrap-mode=nodownload \
+    --pkg-config-path="$PREFIX/lib/pkgconfig" \
     "$@"
   ninja -j$JOBS && ninja install
   touch "$SRC/$dir/.build_done"
@@ -206,45 +234,6 @@ build_libxml2() {
   echo "[OK] libxml2"
 }
 
-# ─── 4b. pcre2 (dibutuhkan oleh glib) ──────────────────────────────────────
-build_pcre2() {
-  echo ">>> Building pcre2..."
-  cd "$SRC"
-  download_if_missing \
-    https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.gz \
-    pcre2-10.42.tar.gz
-  [ -d pcre2-10.42 ] || tar -xzf pcre2-10.42.tar.gz
-  cmake_build pcre2-10.42 \
-    -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DBUILD_SHARED_LIBS=ON \
-    -DPCRE2_BUILD_PCRE2_8=ON \
-    -DPCRE2_BUILD_PCRE2_16=ON \
-    -DPCRE2_BUILD_PCRE2_32=ON \
-    -DPCRE2_SUPPORT_UNICODE=ON \
-    -DPCRE2_BUILD_TESTS=OFF \
-    -DPCRE2_BUILD_PCRE2GREP=OFF \
-    -DBUILD_SHARED_LIBS=ON \
-    -DBUILD_STATIC_LIBS=OFF \
-    -DBUILD_TESTING=OFF
-  echo "[OK] pcre2"
-}
-# ─── 4c. libffi (dibutuhkan oleh glib) ──────────────────────────────────────
-build_libffi() {
-  echo ">>> Building libffi..."
-  cd "$SRC"
-
-  download_if_missing \
-    https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz \
-    libffi-3.4.6.tar.gz
-
-  [ -d libffi-3.4.6 ] || tar -xzf libffi-3.4.6.tar.gz
-
-  autoconf_build libffi-3.4.6 \
-    --disable-multi-os-directory
-
-  echo "[OK] libffi"
-}
-
 # ─── 5. glib ────────────────────────────────────────────────────────────────
 build_glib() {
   echo ">>> Building glib..."
@@ -260,7 +249,7 @@ build_glib() {
     -Dglib_checks=false \
     -Dlibmount=disabled \
     -Dpcre2=system \
-    --wrap-mode=nodownload \
+    --wrap-mode=default \
     -Dforce_posix_threads=true
   echo "[OK] glib"
 }
@@ -567,14 +556,12 @@ echo " SRC    : $SRC"
 echo " JOBS   : $JOBS"
 echo "================================================"
 
-setup_crossfile
+setup_cross_env
 
 build_zlib
 build_libiconv
 build_xz
 build_libxml2
-build_pcre2
-build_libffi
 build_glib
 build_freetype
 build_expat
