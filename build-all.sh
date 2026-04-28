@@ -226,6 +226,22 @@ build_pcre2() {
     -DBUILD_TESTING=OFF
   echo "[OK] pcre2"
 }
+# ─── 4c. libffi (dibutuhkan oleh glib) ──────────────────────────────────────
+build_libffi() {
+  echo ">>> Building libffi..."
+  cd "$SRC"
+
+  download_if_missing \
+    https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz \
+    libffi-3.4.6.tar.gz
+
+  [ -d libffi-3.4.6 ] || tar -xzf libffi-3.4.6.tar.gz
+
+  autoconf_build libffi-3.4.6 \
+    --disable-multi-os-directory
+
+  echo "[OK] libffi"
+}
 
 # ─── 5. glib ────────────────────────────────────────────────────────────────
 build_glib() {
@@ -555,6 +571,7 @@ build_libiconv
 build_xz
 build_libxml2
 build_pcre2
+build_libffi
 build_glib
 build_freetype
 build_expat
