@@ -17,9 +17,12 @@ export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR="$PREFIX"
 
 # Propagate flags ke semua build
-export CFLAGS="-I$PREFIX/include"
-export CXXFLAGS="-I$PREFIX/include"
-export LDFLAGS="-L$PREFIX/lib"
+# export CFLAGS="-I$PREFIX/include"
+# export CXXFLAGS="-I$PREFIX/include"
+# export LDFLAGS="-L$PREFIX/lib"
+export CFLAGS="-I$PREFIX/include -pthread"
+export CXXFLAGS="-I$PREFIX/include -pthread"
+export LDFLAGS="-L$PREFIX/lib -lwinpthread"
 
 mkdir -p "$SRC" "$PREFIX/lib" "$PREFIX/bin" "$PREFIX/include"
 
@@ -548,10 +551,10 @@ build_mlt() {
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON \
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-    -DCMAKE_C_FLAGS="-I$PREFIX/include" \
-    -DCMAKE_CXX_FLAGS="-I$PREFIX/include" \
-    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
+    -DCMAKE_C_FLAGS="-I$PREFIX/include -pthread" \
+    -DCMAKE_CXX_FLAGS="-I$PREFIX/include -pthread" \
+    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
     -DCMAKE_THREAD_LIBS_INIT="-lwinpthread" \
     -DCMAKE_HAVE_THREADS_LIBRARY=ON \
     -DCMAKE_USE_WIN32_THREADS_INIT=OFF \
@@ -567,6 +570,7 @@ build_mlt() {
     -DMOD_VORBIS=OFF \
     -DMOD_RTAUDIO=OFF \
     -DMOD_SWIG=OFF \
+    -DMOD_DECKLINK=OFF \
     -DENABLE_CLANG_FORMAT=OFF
 
   make -j$JOBS && make install
