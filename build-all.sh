@@ -241,6 +241,7 @@ build_glib() {
     -Dglib_assert=false \
     -Dglib_checks=false \
     -Dlibmount=disabled \
+    --wrap-mode=forcefallback \
     -Dforce_posix_threads=true
   echo "[OK] glib"
 }
