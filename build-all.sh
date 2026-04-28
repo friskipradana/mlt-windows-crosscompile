@@ -202,6 +202,24 @@ build_libxml2() {
   echo "[OK] libxml2"
 }
 
+# ─── 4b. pcre2 (dibutuhkan oleh glib) ──────────────────────────────────────
+build_pcre2() {
+  echo ">>> Building pcre2..."
+  cd "$SRC"
+  download_if_missing \
+    https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.gz \
+    pcre2-10.42.tar.gz
+  [ -d pcre2-10.42 ] || tar -xzf pcre2-10.42.tar.gz
+  cmake_build pcre2-10.42 \
+    -DPCRE2_BUILD_PCRE2_8=ON \
+    -DPCRE2_BUILD_PCRE2_16=ON \
+    -DPCRE2_BUILD_PCRE2_32=ON \
+    -DPCRE2_SUPPORT_UNICODE=ON \
+    -DPCRE2_BUILD_TESTS=OFF \
+    -DPCRE2_BUILD_PCRE2GREP=OFF
+  echo "[OK] pcre2"
+}
+
 # ─── 5. glib ────────────────────────────────────────────────────────────────
 build_glib() {
   echo ">>> Building glib..."
@@ -214,7 +232,8 @@ build_glib() {
     -Dtests=false \
     -Dinstalled_tests=false \
     -Dglib_assert=false \
-    -Dglib_checks=false
+    -Dglib_checks=false \
+    -Dlibmount=disabled
   echo "[OK] glib"
 }
 
@@ -526,6 +545,7 @@ build_zlib
 build_libiconv
 build_xz
 build_libxml2
+build_pcre2
 build_glib
 build_freetype
 build_expat
