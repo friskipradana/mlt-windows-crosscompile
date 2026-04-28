@@ -559,7 +559,8 @@ build_mlt() {
     -DCMAKE_HAVE_THREADS_LIBRARY=ON \
     -DCMAKE_USE_WIN32_THREADS_INIT=OFF \
     -DCMAKE_USE_PTHREADS_INIT=ON \
-    -DTHREADS_PREFER_PTHREAD_FLAG=OFF \
+    -DTHREADS_PREFER_PTHREAD_FLAG=ON \
+    -DMLT_BUILD_APP=ON \
     -DMOD_QT6=OFF \
     -DMOD_MOVIT=OFF \
     -DMOD_FREI0R=OFF \
@@ -575,9 +576,24 @@ build_mlt() {
 
   make -j$JOBS && make install
 
-  [ -f "$PREFIX/bin/melt.exe" ] || \
-    { echo "❌ melt.exe NOT FOUND"; find "$PREFIX" -name "*melt*" || true; exit 1; }
+  # fallback: ambil melt.exe dari build dir kalau tidak ke-install
+  MELT_PATH=$(find . -name "melt.exe" 2>/dev/null | head -1)
+  if [ -n "$MELT_PATH" ]; then
+    echo "  [found] melt.exe di build: $MELT_PATH"
+    mkdir -p "$PREFIX/bin"
+    cp -f "$MELT_PATH" "$PREFIX/bin/"
+  fi
 
+  MELT_PATH=$(find "$PREFIX" "$SRC/mlt-win" -name "melt.exe" 2>/dev/null | head -1)
+
+  if [ -z "$MELT_PATH" ]; then
+    echo "❌ melt.exe NOT FOUND"
+    find "$PREFIX" "$SRC/mlt-win" -name "*melt*" || true
+    exit 1
+  else
+    echo "✅ melt.exe found: $MELT_PATH"
+  fi
+  
   echo "[OK] MLT"
 }
 
