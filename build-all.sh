@@ -233,7 +233,8 @@ build_glib() {
     -Dinstalled_tests=false \
     -Dglib_assert=false \
     -Dglib_checks=false \
-    -Dlibmount=disabled
+    -Dlibmount=disabled \
+    --wrap-mode=forcefallback
   echo "[OK] glib"
 }
 
