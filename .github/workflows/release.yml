@@ -55,7 +55,9 @@ jobs:
             wget \
             zip \
             python3 \
-            python3-pip
+            python3-pip \
+            libffi-dev \
+            libglib2.0-dev
 
       # ─────────────────────────────────────────────
       # 4. Cache deps
