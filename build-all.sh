@@ -1,5 +1,6 @@
 #!/bin/bash
 # build-all-ubuntu.sh - Cross compile MLT for Windows from Ubuntu (GitHub Actions)
+# Merged & fixed from working Alpine WSL version
 # Usage: ./build-all-ubuntu.sh
 
 set -e
@@ -8,11 +9,8 @@ PREFIX="$HOME/tools/win-deps"
 SRC="$HOME/tools/src"
 CROSS="x86_64-w64-mingw32"
 CROSS_FILE="$HOME/tools/mingw-cross.ini"
-# GitHub Actions biasanya 2-4 core, jangan pakai semua atau bisa OOM
+# GitHub Actions biasanya 2-4 core
 JOBS=$(( $(nproc) > 2 ? $(nproc) - 1 : 2 ))
-
-export MESON_ALLOW_DOWNLOAD=1
-export PKG_CONFIG_SYSROOT_DIR="$PREFIX"
 
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
 export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
@@ -37,6 +35,7 @@ download_if_missing() {
 }
 
 # ─── Meson cross file ───────────────────────────────────────────────────────
+# FIX: c_args/cpp_args pindah ke [built-in options] (deprecated di [properties] sejak meson 1.2+)
 setup_crossfile() {
   cat > "$CROSS_FILE" << EOF
 [binaries]
@@ -57,6 +56,7 @@ endian = 'little'
 pkg_config_libdir = '$PREFIX/lib/pkgconfig'
 needs_exe_wrapper = true
 
+[built-in options]
 c_args = ['-I$PREFIX/include']
 c_link_args = ['-L$PREFIX/lib']
 cpp_args = ['-I$PREFIX/include']
@@ -88,16 +88,26 @@ setup_pthread_lib() {
 setup_pthread_dll() {
   echo ">>> Copying winpthread runtime DLL..."
 
-  SYSROOT_BIN="/usr/x86_64-w64-mingw32/bin"
+  # FIX: di Ubuntu DLL tidak di /usr/x86_64-w64-mingw32/bin, cari di semua lokasi
+  PTHREAD_DLL=$(find /usr -name "libwinpthread-1.dll" 2>/dev/null | head -1)
 
-  if [ -f "$SYSROOT_BIN/libwinpthread-1.dll" ]; then
-    cp "$SYSROOT_BIN/libwinpthread-1.dll" "$PREFIX/bin/"
-    echo "  [copied] libwinpthread-1.dll"
+  if [ -n "$PTHREAD_DLL" ]; then
+    cp "$PTHREAD_DLL" "$PREFIX/bin/"
+    echo "  [copied] libwinpthread-1.dll dari $PTHREAD_DLL"
   else
-    echo "  [ERROR] libwinpthread-1.dll tidak ditemukan!"
+    echo "  [WARN] libwinpthread-1.dll tidak ditemukan, coba install ulang..."
+    sudo apt-get install -y -q mingw-w64 2>/dev/null || true
+    PTHREAD_DLL=$(find /usr -name "libwinpthread-1.dll" 2>/dev/null | head -1)
+    if [ -n "$PTHREAD_DLL" ]; then
+      cp "$PTHREAD_DLL" "$PREFIX/bin/"
+      echo "  [copied] libwinpthread-1.dll dari $PTHREAD_DLL"
+    else
+      echo "  [ERROR] libwinpthread-1.dll benar-benar tidak ditemukan!"
+      echo "  Debug: find /usr -name 'libwinpthread*'"
+      find /usr -name "libwinpthread*" 2>/dev/null || true
+    fi
   fi
 }
-
 
 setup_cross_env() {
   setup_crossfile
@@ -234,7 +244,27 @@ build_libxml2() {
   echo "[OK] libxml2"
 }
 
-# ─── 5. glib ────────────────────────────────────────────────────────────────
+# ─── 5. pcre2 (wajib untuk glib 2.74+) ─────────────────────────────────────
+# FIX: glib 2.74+ hapus opsi -Dpcre2, pcre2 jadi mandatory dependency.
+# Di Alpine pcre2 tersedia lewat system, di Ubuntu harus cross-compile sendiri.
+build_pcre2() {
+  echo ">>> Building pcre2..."
+  cd "$SRC"
+  download_if_missing \
+    https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.gz \
+    pcre2-10.42.tar.gz
+  [ -d pcre2-10.42 ] || tar -xzf pcre2-10.42.tar.gz
+  cmake_build pcre2-10.42 \
+    -DPCRE2_BUILD_PCRE2_8=ON \
+    -DPCRE2_BUILD_PCRE2_16=ON \
+    -DPCRE2_BUILD_PCRE2_32=ON \
+    -DPCRE2_SUPPORT_UNICODE=ON \
+    -DPCRE2_BUILD_TESTS=OFF \
+    -DPCRE2_BUILD_PCRE2GREP=OFF
+  echo "[OK] pcre2"
+}
+
+# ─── 6. glib ────────────────────────────────────────────────────────────────
 build_glib() {
   echo ">>> Building glib..."
   cd "$SRC"
@@ -242,19 +272,19 @@ build_glib() {
     https://download.gnome.org/sources/glib/2.78/glib-2.78.0.tar.xz \
     glib-2.78.0.tar.xz
   [ -d glib-2.78.0 ] || tar -xf glib-2.78.0.tar.xz
+  # FIX: tidak ada opsi -Dpcre2 di glib 2.74+ (dihapus, jadi mandatory)
+  # FIX: tidak ada opsi -Dglib_assert / -Dglib_checks di versi ini
+  # Sama persis dengan Alpine yang bekerja
   meson_build glib-2.78.0 \
+    --wrap-mode=default \
     -Dtests=false \
     -Dinstalled_tests=false \
-    -Dglib_assert=false \
-    -Dglib_checks=false \
     -Dlibmount=disabled \
-    -Dpcre2=system \
-    --wrap-mode=default \
     -Dforce_posix_threads=true
   echo "[OK] glib"
 }
 
-# ─── 6. freetype ────────────────────────────────────────────────────────────
+# ─── 7. freetype ────────────────────────────────────────────────────────────
 build_freetype() {
   echo ">>> Building freetype..."
   cd "$SRC"
@@ -262,14 +292,14 @@ build_freetype() {
     https://download.savannah.gnu.org/releases/freetype/freetype-2.13.2.tar.gz \
     freetype-2.13.2.tar.gz
   [ -d freetype-2.13.2 ] || tar -xzf freetype-2.13.2.tar.gz
-  # FIX: disable harfbuzz dulu karena belum di-build waktu freetype
+  # Disable harfbuzz dulu, akan di-rebuild setelah harfbuzz selesai (opsional)
   cmake_build freetype-2.13.2 \
     -DFT_DISABLE_HARFBUZZ=ON \
     -DFT_DISABLE_BZIP2=ON
   echo "[OK] freetype"
 }
 
-# ─── 7. expat ───────────────────────────────────────────────────────────────
+# ─── 8. expat ───────────────────────────────────────────────────────────────
 build_expat() {
   echo ">>> Building expat..."
   cd "$SRC"
@@ -281,7 +311,7 @@ build_expat() {
   echo "[OK] expat"
 }
 
-# ─── 8. fontconfig ──────────────────────────────────────────────────────────
+# ─── 9. fontconfig ──────────────────────────────────────────────────────────
 build_fontconfig() {
   echo ">>> Building fontconfig..."
   cd "$SRC"
@@ -311,7 +341,7 @@ build_fontconfig() {
   echo "[OK] fontconfig"
 }
 
-# ─── 9. harfbuzz ────────────────────────────────────────────────────────────
+# ─── 10. harfbuzz ────────────────────────────────────────────────────────────
 build_harfbuzz() {
   echo ">>> Building harfbuzz..."
   cd "$SRC"
@@ -326,7 +356,7 @@ build_harfbuzz() {
   echo "[OK] harfbuzz"
 }
 
-# ─── 10. pango ──────────────────────────────────────────────────────────────
+# ─── 11. pango ──────────────────────────────────────────────────────────────
 build_pango() {
   echo ">>> Building pango..."
   cd "$SRC"
@@ -341,7 +371,7 @@ build_pango() {
   echo "[OK] pango"
 }
 
-# ─── 11. libsamplerate ──────────────────────────────────────────────────────
+# ─── 12. libsamplerate ──────────────────────────────────────────────────────
 build_libsamplerate() {
   echo ">>> Building libsamplerate..."
   cd "$SRC"
@@ -355,7 +385,7 @@ build_libsamplerate() {
   echo "[OK] libsamplerate"
 }
 
-# ─── 12. rubberband ─────────────────────────────────────────────────────────
+# ─── 13. rubberband ─────────────────────────────────────────────────────────
 build_rubberband() {
   echo ">>> Building rubberband..."
   cd "$SRC"
@@ -389,7 +419,7 @@ build_rubberband() {
   echo "[OK] rubberband"
 }
 
-# ─── 13. x264 ───────────────────────────────────────────────────────────────
+# ─── 14. x264 ───────────────────────────────────────────────────────────────
 build_x264() {
   echo ">>> Building x264..."
   cd "$SRC"
@@ -416,7 +446,7 @@ build_x264() {
   echo "[OK] x264"
 }
 
-# ─── 14. FFmpeg ─────────────────────────────────────────────────────────────
+# ─── 15. FFmpeg ─────────────────────────────────────────────────────────────
 build_ffmpeg() {
   echo ">>> Building FFmpeg..."
   cd "$SRC"
@@ -452,7 +482,7 @@ build_ffmpeg() {
   echo "[OK] FFmpeg"
 }
 
-# ─── 15. SDL2 ───────────────────────────────────────────────────────────────
+# ─── 16. SDL2 ───────────────────────────────────────────────────────────────
 build_sdl2() {
   echo ">>> Building SDL2..."
   cd "$SRC"
@@ -464,7 +494,7 @@ build_sdl2() {
   echo "[OK] SDL2"
 }
 
-# ─── 16. libexif ────────────────────────────────────────────────────────────
+# ─── 17. libexif ────────────────────────────────────────────────────────────
 build_libexif() {
   echo ">>> Building libexif..."
   cd "$SRC"
@@ -476,7 +506,7 @@ build_libexif() {
   echo "[OK] libexif"
 }
 
-# ─── 17. libebur128 ─────────────────────────────────────────────────────────
+# ─── 18. libebur128 ─────────────────────────────────────────────────────────
 build_libebur128() {
   echo ">>> Building libebur128..."
   cd "$SRC"
@@ -485,7 +515,7 @@ build_libebur128() {
   echo "[OK] libebur128"
 }
 
-# ─── 18. dlfcn-win32 ────────────────────────────────────────────────────────
+# ─── 19. dlfcn-win32 ────────────────────────────────────────────────────────
 build_dlfcn() {
   echo ">>> Building dlfcn-win32..."
   cd "$SRC"
@@ -494,7 +524,7 @@ build_dlfcn() {
   echo "[OK] dlfcn-win32"
 }
 
-# ─── 19. MLT ────────────────────────────────────────────────────────────────
+# ─── 20. MLT ────────────────────────────────────────────────────────────────
 build_mlt() {
   echo ">>> Building MLT..."
   cd "$SRC"
@@ -562,6 +592,7 @@ build_zlib
 build_libiconv
 build_xz
 build_libxml2
+build_pcre2        # wajib sebelum glib di Ubuntu
 build_glib
 build_freetype
 build_expat
