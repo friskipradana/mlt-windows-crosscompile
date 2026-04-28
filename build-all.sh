@@ -215,6 +215,8 @@ build_pcre2() {
     pcre2-10.42.tar.gz
   [ -d pcre2-10.42 ] || tar -xzf pcre2-10.42.tar.gz
   cmake_build pcre2-10.42 \
+    -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    -DBUILD_SHARED_LIBS=ON \
     -DPCRE2_BUILD_PCRE2_8=ON \
     -DPCRE2_BUILD_PCRE2_16=ON \
     -DPCRE2_BUILD_PCRE2_32=ON \
@@ -257,7 +259,8 @@ build_glib() {
     -Dglib_assert=false \
     -Dglib_checks=false \
     -Dlibmount=disabled \
-    --wrap-mode=forcefallback \
+    -Dpcre2=system \
+    --wrap-mode=nodownload \
     -Dforce_posix_threads=true
   echo "[OK] glib"
 }
