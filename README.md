@@ -1,6 +1,10 @@
-# MLT Windows Cross Compile (Alpine WSL)
+# MLT Windows Cross Compile
 
-Cross compile [MLT Framework](https://www.mltframework.org/) (`melt.exe`) for Windows from Alpine WSL using mingw-w64.
+Cross compile [MLT Framework](https://www.mltframework.org/) (`melt.exe`) for Windows using MinGW-w64.
+
+Supports two build environments:
+- **Alpine WSL** — build locally from Windows
+- **GitHub Actions (Ubuntu)** — automated CI/CD build
 
 
 ## Background
@@ -10,17 +14,28 @@ MLT is a multimedia framework primarily designed for Linux. Building it natively
 - Segfault on avformat consumer
 - XML + consumer crash
 
-This guide cross compiles MLT from Alpine WSL using mingw-w64, producing a stable `melt.exe` for Windows.
+This project cross compiles MLT from Linux using MinGW-w64, producing a stable `melt.exe` for Windows.
 
 
-## Requirements
+## Build Paths
+
+| Environment | Script | Use Case |
+|---|---|---|
+| Alpine WSL (local) | `build-all-alpine.sh` | Build on your own machine via WSL |
+| Ubuntu / GitHub Actions | `build-all-ubuntu.sh` | Automated CI/CD build |
+
+
+---
+
+## Option A: Alpine WSL (Local)
+
+### Requirements
 
 - Windows 10/11 with WSL2
 - Alpine Linux WSL
 - Internet connection
 
-
-## Setup Alpine WSL
+### Setup Alpine WSL
 
 ```bash
 # Install cross compiler and build tools
@@ -33,7 +48,8 @@ apk add \
   python3 perl \
   autoconf automake libtool \
   gettext-dev gperf \
-  git wget
+  git wget \
+  libffi-dev pcre2-dev
 
 # Install latest meson via pip
 pip3 install meson
@@ -41,34 +57,96 @@ export PATH="$HOME/.local/bin:$PATH"
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile
 ```
 
+### Build (Alpine)
+
+```bash
+chmod +x build-all-alpine.sh
+./build-all-alpine.sh
+```
+
+
+---
+
+## Option B: GitHub Actions (Ubuntu)
+
+### Setup
+
+1. Fork or clone this repo to your GitHub account
+2. Push a tag to trigger a release build:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+   Or trigger manually from the **Actions** tab → **Build MLT for Windows** → **Run workflow**
+
+### What the workflow does
+
+```
+Checkout → Install tools → Restore cache → Build → Show folder structure → Validate → Package → Upload
+```
+
+- Builds on `ubuntu-latest` with MinGW-w64 cross compiler
+- Caches `~/tools/win-deps` and `~/tools/src` keyed by hash of `build-all-ubuntu.sh`
+- On manual dispatch: uploads `mlt-windows.zip` as a GitHub Artifact
+- On tag push: creates a GitHub Release with `mlt-windows.zip` attached
+
+### Cache behavior
+
+The cache key is based on `hashFiles('build-all-ubuntu.sh')`. If the build script changes, the cache is automatically invalidated and all dependencies are rebuilt from scratch. If the script has not changed, cached dependencies are restored and skipped.
+
+
+---
 
 ## Directory Structure
 
 ```
 ~/tools/
-├── src/             ← dependency source code
+├── src/             ← dependency source code & build dirs
 ├── win-deps/        ← build output (DLLs, headers, libs)
+│   ├── bin/         ← melt.exe + all DLLs
+│   ├── lib/         ← .dll.a import libs + pkgconfig
+│   └── include/     ← headers
 └── mingw-cross.ini  ← auto-generated meson cross file
 ```
 
-```bash
-mkdir -p ~/tools/src ~/tools/win-deps
-```
+
+---
+
+## Dependencies Built
+
+All dependencies are cross-compiled for Windows (x86_64) in this order:
+
+| # | Library | Version | Build System |
+|---|---|---|---|
+| 1 | zlib | 1.3.1 | CMake |
+| 2 | libiconv | 1.17 | Autoconf |
+| 3 | xz / liblzma | 5.4.6 | Autoconf |
+| 4 | libxml2 | 2.12.0 | CMake |
+| 5 | pcre2 *(Ubuntu only)* | 10.42 | CMake |
+| 6 | glib | 2.78.0 | Meson |
+| 7 | freetype | 2.13.2 | CMake |
+| 8 | expat | 2.5.0 | Autoconf |
+| 9 | fontconfig | 2.15.0 | Autoconf |
+| 10 | harfbuzz | 8.3.0 | Meson |
+| 11 | pango | 1.51.0 | Meson |
+| 12 | libsamplerate | 0.2.2 | CMake |
+| 13 | rubberband | 3.3.0 | Meson |
+| 14 | x264 | master | Custom |
+| 15 | FFmpeg | 7.1 | Custom |
+| 16 | SDL2 | 2.30.0 | CMake |
+| 17 | libexif | 0.6.25 | Autoconf |
+| 18 | libebur128 | latest | CMake |
+| 19 | dlfcn-win32 | latest | CMake |
+| 20 | **MLT** | latest | CMake |
+
+> **Note:** pcre2 is only built separately on Ubuntu. On Alpine it is available as a system package (`pcre2-dev`).
 
 
-## Build All (Automated)
+---
 
-The easiest way — run the build script and everything will be built automatically:
+## Manual Build Steps (Alpine)
 
-```bash
-chmod +x build-all.sh
-./build-all.sh
-```
-
-This will build all dependencies and MLT in the correct order.
-
-
-## Manual Build Steps
+> These steps are for reference. For automated builds, use `build-all.sh` or `build-all-ubuntu.sh` instead.
 
 ### 1. zlib
 ```bash
@@ -365,25 +443,30 @@ make -j$(nproc) && make install
 ```
 
 
+---
+
 ## Known Issues
 
-- `DMOD_QT6=OFF` — Qt6 cross compile is not supported, must be disabled
+- `DMOD_QT6=OFF` — Qt6 cross compile is not supported
 - `DMOD_GDK=OFF` — GDK/GTK cross compile has unresolved issues
 - `DMOD_JACKRACK=OFF` — JACK audio is not available on Windows
-- fontconfig install uses `make install-data install-exec` instead of `make install` because `fc-cache.exe` cannot run on Linux
+- fontconfig uses `make install-exec` + `make install-data` instead of `make install` because `fc-cache.exe` cannot run on Linux
+- On Ubuntu, pcre2 must be cross-compiled separately — it is not available as a MinGW system package unlike on Alpine
 - MLT `lib/mlt` and `share/mlt` paths may need to be set manually via environment variables on Windows
+
 
 ---
 
 ## Pre-built Binaries
 
-Don't want to build from source? Download the pre-built binaries directly:
+Don't want to build from source? Download pre-built binaries directly:
 
-> **[Download pre-built binaries releases](https://github.com/friskipradana/mlt-windows-crosscompile/releases)**
+> **[Download pre-built binaries from Releases](https://github.com/friskipradana/mlt-windows-crosscompile/releases)**
 
 Extract and run `melt.exe` from the extracted folder.
 
 > ⚠️ **Alpha release** — Path configuration for `lib/mlt` and `share/mlt` may need to be set manually via environment variables. Not yet fully tested on all Windows environments.
+
 
 ---
 

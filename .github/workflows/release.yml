@@ -73,7 +73,7 @@ jobs:
           path: |
             ~/tools/win-deps
             ~/tools/src
-          key: mlt-deps-v1-${{ runner.os }}-${{ hashFiles('build-all.sh') }}
+          key: mlt-deps-v1-${{ runner.os }}-${{ hashFiles('build-all-ubuntu.sh') }}
           restore-keys: |
             mlt-deps-v1-${{ runner.os }}-
 
@@ -90,38 +90,6 @@ jobs:
                    $HOME/tools/win-deps/include \
                    $HOME/tools/src
 
-      # ─────────────────────────────────────────────
-      # 6. Copy pthread dari toolchain sysroot
-      # FIX: Ini harus selalu dijalankan setiap run karena
-      # pthread berasal dari apt (bukan dari cache).
-      # Tanpa ini MLT error: No rule to make target 'libpthread.dll.a'
-      # ─────────────────────────────────────────────
-      - name: Setup pthread
-        run: |
-          set -ex
-          SYSROOT_LIB="/usr/x86_64-w64-mingw32/lib"
-          PREFIX="$HOME/tools/win-deps"
-
-          echo ">>> Pthread files di sysroot:"
-          ls "$SYSROOT_LIB"/libpthread* "$SYSROOT_LIB"/libwinpthread* 2>/dev/null || true
-
-          for f in libpthread.a libpthread.dll.a libwinpthread.a libwinpthread.dll.a; do
-            if [ -f "$SYSROOT_LIB/$f" ]; then
-              cp "$SYSROOT_LIB/$f" "$PREFIX/lib/"
-              echo "  [copied] $f"
-            fi
-          done
-
-          # Symlink kalau libpthread tidak ada tapi libwinpthread ada
-          if [ ! -f "$PREFIX/lib/libpthread.dll.a" ] && \
-             [ -f "$PREFIX/lib/libwinpthread.dll.a" ]; then
-            ln -sf "$PREFIX/lib/libwinpthread.dll.a" \
-                   "$PREFIX/lib/libpthread.dll.a"
-            echo "  [symlink] libpthread.dll.a -> libwinpthread.dll.a"
-          fi
-
-          echo ">>> Hasil:"
-          ls "$PREFIX/lib/"*pthread* || echo "WARNING: tidak ada file pthread!"
 
       # ─────────────────────────────────────────────
       # 7. Build
@@ -129,8 +97,19 @@ jobs:
       - name: Build
         run: |
          set -ex
-         chmod +x build-all.sh
-         ./build-all.sh
+         chmod +x build-all-ubuntu.sh
+         ./build-all-ubuntu.sh
+
+      # ─────────────────────────────────────────────
+      # 7.1 Show folder structure
+      # ─────────────────────────────────────────────
+      - name: Show folder structure
+        run: |
+          echo "=== ~/tools/win-deps ==="
+          find $HOME/tools/win-deps -maxdepth 4 | sort
+
+          echo "=== ~/tools/src ==="
+          find $HOME/tools/src -maxdepth 2 | sort
 
       # ─────────────────────────────────────────────
       # 8. Validasi output
