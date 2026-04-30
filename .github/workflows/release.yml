@@ -145,7 +145,8 @@ jobs:
           ls "$PREFIX/bin/"*.dll | wc -l
 
           echo "=== MLT modules ==="
-          ls "$PREFIX/lib/mlt/" 2>/dev/null || echo "WARNING: lib/mlt tidak ditemukan"
+          ls "$PREFIX/lib/mlt-7/" 2>/dev/null || echo "WARNING: lib/mlt-7 tidak ditemukan"
+          ls "$PREFIX/share/mlt-7/" 2>/dev/null || echo "WARNING: share/mlt-7 tidak ditemukan"
 
       # ─────────────────────────────────────────────
       # 9. Package
