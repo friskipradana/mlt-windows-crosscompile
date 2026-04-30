@@ -175,8 +175,15 @@ jobs:
       - name: Package
         run: |
           set -ex
+
           PREFIX="$HOME/tools/win-deps"
           OUT="release-output"
+          ZIP="mlt-windows.zip"
+
+          # 🧹 CLEAN TOTAL (WAJIB)
+          rm -rf "$OUT"
+          rm -f "$ZIP"
+
           mkdir -p "$OUT/bin" "$OUT/lib/mlt-7" "$OUT/share"
 
           # Root: melt.exe + libmlt core DLL
@@ -198,15 +205,26 @@ jobs:
           # share
           [ -d "$PREFIX/share/mlt-7" ] && cp -r "$PREFIX/share/mlt-7" "$OUT/share/"
 
-          # run_melt.ps1
+          # run script
           cp run_melt.ps1 "$OUT/"
 
-          echo "=== Struktur output ===" && tree "$OUT" -L 3
+          # 🔒 EXTRA SAFETY: jangan ada zip di dalam OUT
+          find "$OUT" -name "*.zip" -delete
 
-          cd "$OUT" && zip -r ../mlt-windows.zip .
-          ls -lh ../mlt-windows.zip
+          echo "=== Struktur output ==="
+          tree "$OUT" -L 3 || true
 
-          
+          # 📦 ZIP TANPA NESTING
+          (
+            cd "$OUT"
+            zip -r "../$ZIP" .
+          )
+
+          echo "=== Isi ZIP ==="
+          unzip -l "$ZIP" | head -n 30
+
+          ls -lh "$ZIP"
+
       # ─────────────────────────────────────────────
       # 11. Upload artifact (manual dispatch)
       # ─────────────────────────────────────────────
