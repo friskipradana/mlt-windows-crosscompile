@@ -105,16 +105,30 @@ jobs:
       # ─────────────────────────────────────────────
       - name: Show folder structure
         run: |
-
           echo "=== ~/tools/ ==="
           tree $HOME/tools/ -L 1
 
+      # ─────────────────────────────────────────────
+      # 7.2 Show folder structure win-deps
+      # ─────────────────────────────────────────────
+      - name: Show folder structure win-deps
+        run: |
           echo "=== ~/tools/win-deps ==="
           tree $HOME/tools/win-deps -L 2
 
+      # ─────────────────────────────────────────────
+      # 7.3 Show folder structure src
+      # ─────────────────────────────────────────────
+      - name: Show folder structure src
+        run: |
           echo "=== ~/tools/src ==="
           tree $HOME/tools/src -L 1
 
+      # ─────────────────────────────────────────────
+      # 7.4 Show folder structure src/mlt-win
+      # ─────────────────────────────────────────────
+      - name: Show folder structure src/mlt-win
+        run: |
           echo "=== ~/tools/src/mlt-win/build ==="
           tree $HOME/tools/src/mlt-win/build -L 3
 
@@ -131,9 +145,7 @@ jobs:
           ls "$PREFIX/bin/"*.dll | wc -l
 
           echo "=== MLT modules ==="
-          ls "$PREFIX/lib/mlt/"   2>/dev/null || \
-          ls "$PREFIX/lib/mlt-7/" 2>/dev/null || \
-          echo "WARNING: lib/mlt tidak ditemukan"
+          ls "$PREFIX/lib/mlt/" 2>/dev/null || echo "WARNING: lib/mlt tidak ditemukan"
 
       # ─────────────────────────────────────────────
       # 9. Package
