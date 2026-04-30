@@ -169,7 +169,7 @@ jobs:
           echo "" | & "$env:MLT_HOME\melt.exe" $args
           EOF
           
-      # ─────────────────────────────────────────────
+            # ─────────────────────────────────────────────
       # 10. Package
       # ─────────────────────────────────────────────
       - name: Package
@@ -179,6 +179,9 @@ jobs:
           PREFIX="$HOME/tools/win-deps"
           OUT="release-output"
           ZIP="mlt-windows.zip"
+
+          # 💥 CLEAN GLOBAL (FIX: hapus zip dari cache / run sebelumnya)
+          find "$HOME/tools" -type f -iname "*.zip" -delete || true
 
           # 🧹 CLEAN TOTAL (WAJIB)
           rm -rf "$OUT"
@@ -209,15 +212,18 @@ jobs:
           cp run_melt.ps1 "$OUT/"
 
           # 🔒 EXTRA SAFETY: jangan ada zip di dalam OUT
-          find "$OUT" -name "*.zip" -delete
+          find "$OUT" -type f -iname "*.zip" -delete
 
           echo "=== Struktur output ==="
           tree "$OUT" -L 3 || true
 
-          # 📦 ZIP TANPA NESTING
+          echo "=== DEBUG: cek zip sebelum packing ==="
+          find "$OUT" -type f | grep -i zip || echo "NO ZIP FOUND"
+
+          # 📦 ZIP TANPA NESTING + BLOCK ZIP FILE
           (
             cd "$OUT"
-            zip -r "../$ZIP" .
+            zip -r "../$ZIP" . -x "*.zip"
           )
 
           echo "=== Isi ZIP ==="
