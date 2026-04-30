@@ -105,11 +105,18 @@ jobs:
       # ─────────────────────────────────────────────
       - name: Show folder structure
         run: |
+
+          echo "=== ~/tools/ ==="
+          tree $HOME/tools/ -L 1
+
           echo "=== ~/tools/win-deps ==="
           tree $HOME/tools/win-deps -L 2
 
           echo "=== ~/tools/src ==="
           tree $HOME/tools/src -L 1
+
+          echo "=== ~/tools/src/mlt-win/build ==="
+          tree $HOME/tools/src/mlt-win/build -L 3
 
       # ─────────────────────────────────────────────
       # 8. Validate output
@@ -127,29 +134,6 @@ jobs:
           ls "$PREFIX/lib/mlt/"   2>/dev/null || \
           ls "$PREFIX/lib/mlt-7/" 2>/dev/null || \
           echo "WARNING: lib/mlt tidak ditemukan"
-
-      # ─────────────────────────────────────────────
-      # 8.1 Prepare raw bundle
-      # ─────────────────────────────────────────────
-      - name: Prepare raw bundle
-        run: |
-          set -ex
-          PREFIX="$HOME/tools/win-deps"
-          mkdir -p release-output
-
-          # Copy everything from win-deps as full bundle
-          cp -r "$PREFIX/bin"   release-output/
-          cp -r "$PREFIX/lib"   release-output/
-          cp -r "$PREFIX/share" release-output/
-          cp -r "$PREFIX/include" release-output/
-          cp -r "$PREFIX/etc"   release-output/ 2>/dev/null || true
-
-          # Copy src as well
-          cp -r "$HOME/tools/src" release-output/src
-
-          # Folder structure log
-          tree release-output -L 3 > release-output/folder-structure.txt
-
 
       # ─────────────────────────────────────────────
       # 9. Package
