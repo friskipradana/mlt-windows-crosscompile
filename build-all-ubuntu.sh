@@ -671,6 +671,7 @@ build_mlt() {
     -DMOD_RTAUDIO=OFF \
     -DMOD_SWIG=OFF \
     -DMOD_DECKLINK=OFF \
+    -DMOD_OPENFX=OFF \
     -DENABLE_CLANG_FORMAT=OFF
 
   echo ">>> BUILD"
