@@ -109,7 +109,7 @@ jobs:
           tree $HOME/tools/win-deps -L 2
 
           echo "=== ~/tools/src ==="
-          tree $HOME/tools/src -L 2
+          tree $HOME/tools/src -L 1
 
       # ─────────────────────────────────────────────
       # 8. Validate output
