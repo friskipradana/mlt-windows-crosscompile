@@ -576,7 +576,7 @@ build_mlt() {
 
   make -j$JOBS && make install
 
-  # fallback: ambil melt.exe dari build dir kalau tidak ke-install
+  # fallback: copy melt.exe dari build dir
   MELT_PATH=$(find . -name "melt.exe" 2>/dev/null | head -1)
   if [ -n "$MELT_PATH" ]; then
     echo "  [found] melt.exe di build: $MELT_PATH"
@@ -584,8 +584,30 @@ build_mlt() {
     cp -f "$MELT_PATH" "$PREFIX/bin/"
   fi
 
-  MELT_PATH=$(find "$PREFIX" "$SRC/mlt-win" -name "melt.exe" 2>/dev/null | head -1)
+  # fallback: copy libmlt*.dll dari build dir
+  echo "  [fallback] copying libmlt DLLs..."
+  find "$SRC/mlt-win/build" -name "libmlt*.dll" | while read dll; do
+    cp "$dll" "$PREFIX/bin/"
+    echo "  [copied] $(basename $dll)"
+  done
 
+  # fallback: copy modules dari build dir ke lib/mlt-7
+  echo "  [fallback] copying MLT modules..."
+  mkdir -p "$PREFIX/lib/mlt-7"
+  find "$SRC/mlt-win/build/src/modules" -name "*.dll" | while read dll; do
+    cp "$dll" "$PREFIX/lib/mlt-7/"
+    echo "  [copied] $(basename $dll)"
+  done
+
+  # fallback: copy share/mlt-7 dari source tree
+  echo "  [fallback] copying MLT share data..."
+  mkdir -p "$PREFIX/share/mlt-7"
+  if [ -d "$SRC/mlt-win/share/mlt-7" ]; then
+    cp -r "$SRC/mlt-win/share/mlt-7/"* "$PREFIX/share/mlt-7/" 2>/dev/null || true
+  fi
+
+  # validasi akhir
+  MELT_PATH=$(find "$PREFIX" "$SRC/mlt-win" -name "melt.exe" 2>/dev/null | head -1)
   if [ -z "$MELT_PATH" ]; then
     echo "❌ melt.exe NOT FOUND"
     find "$PREFIX" "$SRC/mlt-win" -name "*melt*" || true
@@ -593,10 +615,12 @@ build_mlt() {
   else
     echo "✅ melt.exe found: $MELT_PATH"
   fi
-  
+
+  echo "✅ lib/mlt-7 modules: $(ls $PREFIX/lib/mlt-7 | wc -l) files"
+  echo "✅ share/mlt-7 data: $(ls $PREFIX/share/mlt-7 | wc -l) files"
+
   echo "[OK] MLT"
 }
-
 # ─── MAIN ───────────────────────────────────────────────────────────────────
 echo "================================================"
 echo " MLT Windows Cross Compile - Ubuntu/GH Actions"
