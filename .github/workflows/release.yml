@@ -106,7 +106,7 @@ jobs:
       - name: Show folder structure
         run: |
           echo "=== ~/tools/win-deps ==="
-          tree $HOME/tools/win-deps -L 4
+          tree $HOME/tools/win-deps -L 2
 
           echo "=== ~/tools/src ==="
           tree $HOME/tools/src -L 2
