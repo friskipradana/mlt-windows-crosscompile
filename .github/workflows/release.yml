@@ -131,7 +131,6 @@ jobs:
         run: |
           echo "=== ~/tools/src/mlt-win/build ==="
           tree $HOME/tools/src/mlt-win/build -L 3
-      
 
       # ─────────────────────────────────────────────
       # 8. Validate output
@@ -149,27 +148,66 @@ jobs:
           ls "$PREFIX/lib/mlt-7/" 2>/dev/null || echo "WARNING: lib/mlt-7 tidak ditemukan"
           ls "$PREFIX/share/mlt-7/" 2>/dev/null || echo "WARNING: share/mlt-7 tidak ditemukan"
 
+
       # ─────────────────────────────────────────────
-      # 9. Package
+      # 9. Generate run_melt.ps1
+      # ─────────────────────────────────────────────
+      - name: Generate run_melt.ps1
+        run: |
+          cat > run_melt.ps1 << 'EOF'
+          # run_melt.ps1
+          $env:MLT_HOME = $PSScriptRoot
+
+          $env:MLT_REPOSITORY    = "$env:MLT_HOME\lib\mlt-7"
+          $env:MLT_DATA          = "$env:MLT_HOME\share\mlt-7"
+          $env:MLT_PROFILES_PATH = "$env:MLT_HOME\share\mlt-7\profiles"
+
+          $env:PATH = "$env:MLT_HOME\bin;$env:MLT_HOME;$env:PATH"
+
+          Set-Location $env:MLT_HOME
+
+          echo "" | & "$env:MLT_HOME\melt.exe" $args
+          EOF
+          
+      # ─────────────────────────────────────────────
+      # 10. Package
       # ─────────────────────────────────────────────
       - name: Package
         run: |
           set -ex
           PREFIX="$HOME/tools/win-deps"
-          mkdir -p release-output
+          OUT="release-output"
+          mkdir -p "$OUT/bin" "$OUT/lib/mlt-7" "$OUT/share"
 
-          cp "$PREFIX/bin/melt.exe"   release-output/ 2>/dev/null || true
-          cp "$PREFIX/bin/"*.dll      release-output/ 2>/dev/null || true
-          cp -r "$PREFIX/lib/mlt"     release-output/lib-mlt    2>/dev/null || true
-          cp -r "$PREFIX/share/mlt"   release-output/share-mlt  2>/dev/null || true
+          # Root: melt.exe + libmlt core DLL
+          cp "$PREFIX/bin/melt.exe"        "$OUT/"
+          cp "$PREFIX/bin/libmlt-7.dll"    "$OUT/"
+          cp "$PREFIX/bin/libmlt++-7.dll"  "$OUT/"
 
-          cd release-output
-          zip -r ../mlt-windows.zip .
-          echo "=== Package size ==="
+          # lib/mlt-7: MLT module DLLs
+          find "$PREFIX/bin" -name "libmlt*.dll" \
+            ! -name "libmlt-7.dll" \
+            ! -name "libmlt++-7.dll" \
+            -exec cp {} "$OUT/lib/mlt-7/" \;
+
+          # bin: semua DLL dependency lainnya
+          find "$PREFIX/bin" -name "*.dll" \
+            ! -name "libmlt*.dll" \
+            -exec cp {} "$OUT/bin/" \;
+
+          # share
+          [ -d "$PREFIX/share/mlt-7" ] && cp -r "$PREFIX/share/mlt-7" "$OUT/share/"
+
+          # run_melt.ps1 dari repo
+          [ -f "run_melt.ps1" ] && cp run_melt.ps1 "$OUT/"
+
+          echo "=== Struktur output ===" && tree "$OUT" -L 3
+
+          cd "$OUT" && zip -r ../mlt-windows.zip .
           ls -lh ../mlt-windows.zip
 
       # ─────────────────────────────────────────────
-      # 10. Upload artifact (manual dispatch)
+      # 11. Upload artifact (manual dispatch)
       # ─────────────────────────────────────────────
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
@@ -179,7 +217,7 @@ jobs:
           path: mlt-windows.zip
 
       # ─────────────────────────────────────────────
-      # 11. GitHub Release (tag push)
+      # 12. GitHub Release (tag push)
       # ─────────────────────────────────────────────
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
