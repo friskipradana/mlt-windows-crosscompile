@@ -457,6 +457,67 @@ make -j$(nproc) && make install
 
 ---
 
+## Running on Windows
+
+MLT requires environment variables to find its modules and data files at runtime. Use `run_melt.ps1` instead of calling `melt.exe` directly.
+
+### Setup
+
+Extract the release zip. If `run_melt.ps1` is not included, create it manually — save the file below into the same folder as `melt.exe`:
+
+```powershell
+# run_melt.ps1
+# PowerShell script to run melt.exe with the correct MLT environment
+
+# $PSScriptRoot = folder where run_melt.ps1 is located (automatic, dynamic)
+# Set MLT_HOME to the win-deps folder
+$env:MLT_HOME = $PSScriptRoot
+
+# Add bin and root to PATH so DLLs can be found
+$env:PATH = "$env:MLT_HOME\bin;$env:MLT_HOME;$env:PATH"
+
+# cd into the MLT folder so melt.exe can resolve share/lib relative paths
+Set-Location $env:MLT_HOME
+
+# Run melt.exe, forwarding all arguments passed to this script
+echo "" | & "$env:MLT_HOME\melt.exe" $args
+```
+
+Then open PowerShell inside the extracted folder and run:
+
+```powershell
+.\run_melt.ps1 [melt arguments]
+```
+
+**Example:**
+
+```powershell
+# Show melt version
+.\run_melt.ps1 --version
+
+# Render a project
+.\run_melt.ps1 project.mlt -consumer avformat:output.mp4
+```
+
+### What the script does
+
+```powershell
+$env:MLT_HOME = $PSScriptRoot                          # set root to script's folder
+$env:PATH     = "$env:MLT_HOME\bin;$env:MLT_HOME;..."  # add DLL paths
+Set-Location $env:MLT_HOME                             # cd into root so relative paths work
+echo "" | & "$env:MLT_HOME\melt.exe" $args             # run melt.exe with your arguments
+```
+
+It sets `MLT_HOME`, adds `bin\` to PATH so all DLLs are found, and `cd`s into the folder so `lib\mlt` and `share\mlt` are resolved correctly relative to the working directory.
+
+> **Note:** Jika PowerShell memblokir script dengan execution policy error, jalankan sekali:
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+> ```
+
+
+---
+
 ## Pre-built Binaries
 
 Don't want to build from source? Download pre-built binaries directly:
