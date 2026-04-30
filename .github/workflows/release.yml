@@ -198,14 +198,15 @@ jobs:
           # share
           [ -d "$PREFIX/share/mlt-7" ] && cp -r "$PREFIX/share/mlt-7" "$OUT/share/"
 
-          # run_melt.ps1 dari repo
-          [ -f "run_melt.ps1" ] && cp run_melt.ps1 "$OUT/"
+          # run_melt.ps1
+          cp run_melt.ps1 "$OUT/"
 
           echo "=== Struktur output ===" && tree "$OUT" -L 3
 
           cd "$OUT" && zip -r ../mlt-windows.zip .
           ls -lh ../mlt-windows.zip
 
+          
       # ─────────────────────────────────────────────
       # 11. Upload artifact (manual dispatch)
       # ─────────────────────────────────────────────
