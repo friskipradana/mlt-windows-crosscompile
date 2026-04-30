@@ -528,100 +528,6 @@ build_dlfcn() {
 }
 
 # ─── 20. MLT ────────────────────────────────────────────────────────────────
-# build_mlt() {
-#   echo ">>> Building MLT..."
-#   cd "$SRC"
-#   [ -d mlt-win ] || git clone --depth=1 https://github.com/mltframework/mlt.git mlt-win
-#   cd mlt-win
-#   mkdir -p build && cd build
-
-#   cmake .. \
-#     -DCMAKE_SYSTEM_NAME=Windows \
-#     -DCMAKE_CROSSCOMPILING=ON \
-#     -DCMAKE_C_COMPILER=$CROSS-gcc \
-#     -DCMAKE_CXX_COMPILER=$CROSS-g++ \
-#     -DCMAKE_RC_COMPILER=$CROSS-windres \
-#     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-#     -DCMAKE_PREFIX_PATH="$PREFIX" \
-#     -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
-#     -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
-#     -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-#     -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-#     -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-#     -DCMAKE_BUILD_TYPE=Release \
-#     -DBUILD_SHARED_LIBS=ON \
-#     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-#     -DCMAKE_C_FLAGS="-I$PREFIX/include -pthread" \
-#     -DCMAKE_CXX_FLAGS="-I$PREFIX/include -pthread" \
-#     -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
-#     -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
-#     -DCMAKE_THREAD_LIBS_INIT="-lwinpthread" \
-#     -DCMAKE_HAVE_THREADS_LIBRARY=ON \
-#     -DCMAKE_USE_WIN32_THREADS_INIT=OFF \
-#     -DCMAKE_USE_PTHREADS_INIT=ON \
-#     -DTHREADS_PREFER_PTHREAD_FLAG=ON \
-#     -DMLT_BUILD_APP=ON \
-#     -DMOD_QT6=OFF \
-#     -DMOD_MOVIT=OFF \
-#     -DMOD_FREI0R=OFF \
-#     -DMOD_GDK=OFF \
-#     -DMOD_JACKRACK=OFF \
-#     -DMOD_SOX=OFF \
-#     -DMOD_VIDSTAB=OFF \
-#     -DMOD_VORBIS=OFF \
-#     -DMOD_RTAUDIO=OFF \
-#     -DMOD_SWIG=OFF \
-#     -DMOD_DECKLINK=OFF \
-#     -DENABLE_CLANG_FORMAT=OFF
-
-#   make -j$JOBS && make install
-
-#   # fallback: copy melt.exe dari build dir
-#   MELT_PATH=$(find . -name "melt.exe" 2>/dev/null | head -1)
-#   if [ -n "$MELT_PATH" ]; then
-#     echo "  [found] melt.exe di build: $MELT_PATH"
-#     mkdir -p "$PREFIX/bin"
-#     cp -f "$MELT_PATH" "$PREFIX/bin/"
-#   fi
-
-#   # fallback: copy libmlt*.dll dari build dir
-#   echo "  [fallback] copying libmlt DLLs..."
-#   find "$SRC/mlt-win/build" -name "libmlt*.dll" | while read dll; do
-#     cp "$dll" "$PREFIX/bin/"
-#     echo "  [copied] $(basename $dll)"
-#   done
-
-#   # fallback: copy modules dari build dir ke lib/mlt-7
-#   echo "  [fallback] copying MLT modules..."
-#   mkdir -p "$PREFIX/lib/mlt-7"
-#   find "$SRC/mlt-win/build/src/modules" -name "*.dll" | while read dll; do
-#     cp "$dll" "$PREFIX/lib/mlt-7/"
-#     echo "  [copied] $(basename $dll)"
-#   done
-
-#   # fallback: copy share/mlt-7 dari source tree
-#   echo "  [fallback] copying MLT share data..."
-#   mkdir -p "$PREFIX/share/mlt-7"
-#   if [ -d "$SRC/mlt-win/share/mlt-7" ]; then
-#     cp -r "$SRC/mlt-win/share/mlt-7/"* "$PREFIX/share/mlt-7/" 2>/dev/null || true
-#   fi
-
-#   # validasi akhir
-#   MELT_PATH=$(find "$PREFIX" "$SRC/mlt-win" -name "melt.exe" 2>/dev/null | head -1)
-#   if [ -z "$MELT_PATH" ]; then
-#     echo "❌ melt.exe NOT FOUND"
-#     find "$PREFIX" "$SRC/mlt-win" -name "*melt*" || true
-#     exit 1
-#   else
-#     echo "✅ melt.exe found: $MELT_PATH"
-#   fi
-
-#   echo "✅ lib/mlt-7 modules: $(ls $PREFIX/lib/mlt-7 | wc -l) files"
-#   echo "✅ share/mlt-7 data: $(ls $PREFIX/share/mlt-7 | wc -l) files"
-
-#   echo "[OK] MLT"
-# }
-
 build_mlt() {
   echo ">>> Building MLT..."
 
@@ -684,11 +590,11 @@ build_mlt() {
   make install
 
   # =========================
-  # FALLBACK FIXED
+  # FALLBACK FINAL FIX
   # =========================
 
   echo ">>> FALLBACK: melt.exe"
-  MELT_PATH=$(find "$SRC/mlt-win/build" -name "melt.exe" 2>/dev/null | head -1)
+  MELT_PATH=$(find "$SRC/mlt-win/build/out" -name "melt.exe" 2>/dev/null | head -1)
   if [ -n "$MELT_PATH" ]; then
     mkdir -p "$PREFIX/bin"
     cp -f "$MELT_PATH" "$PREFIX/bin/"
@@ -696,39 +602,38 @@ build_mlt() {
   fi
 
   echo ">>> FALLBACK: libmlt DLL"
-  find "$SRC/mlt-win/build" -name "libmlt*.dll" | while read dll; do
+  find "$SRC/mlt-win/build/out" -name "libmlt*.dll" | while read dll; do
     cp "$dll" "$PREFIX/bin/"
     echo "  [copied] $(basename $dll)"
   done
 
-  echo ">>> FALLBACK: modules"
-  mkdir -p "$PREFIX/lib/mlt-7"
-  find "$SRC/mlt-win/build/modules" -name "*.dll" | while read dll; do
-    cp "$dll" "$PREFIX/lib/mlt-7/"
+  echo ">>> FALLBACK: modules (FIXED)"
+  mkdir -p "$PREFIX/lib/mlt"
+  find "$SRC/mlt-win/build/out/lib/mlt" -name "*.dll" | while read dll; do
+    cp "$dll" "$PREFIX/lib/mlt/"
+    echo "  [copied] $(basename $dll)"
   done
 
-  echo ">>> FALLBACK: share"
-  mkdir -p "$PREFIX/share/mlt-7"
-  if [ -d "$SRC/mlt-win/share/mlt-7" ]; then
-    cp -r "$SRC/mlt-win/share/mlt-7/"* "$PREFIX/share/mlt-7/" 2>/dev/null || true
+  echo ">>> FALLBACK: share (FIXED)"
+  mkdir -p "$PREFIX/share/mlt"
+  if [ -d "$SRC/mlt-win/build/out/share/mlt" ]; then
+    cp -r "$SRC/mlt-win/build/out/share/mlt/"* "$PREFIX/share/mlt/" 2>/dev/null || true
   fi
 
   # =========================
-  # VALIDASI KERAS
+  # VALIDASI FINAL
   # =========================
 
-  MELT_PATH=$(find "$PREFIX" -name "melt.exe" 2>/dev/null | head -1)
+  MELT_PATH=$(find "$PREFIX/bin" -name "melt.exe" 2>/dev/null | head -1)
 
   if [ -z "$MELT_PATH" ]; then
     echo "❌ melt.exe NOT FOUND"
-    echo ">>> DEBUG FULL SEARCH:"
-    find "$SRC/mlt-win" -name "*melt*" || true
     exit 1
   fi
 
   echo "✅ melt.exe: $MELT_PATH"
-  echo "✅ modules: $(ls $PREFIX/lib/mlt-7 2>/dev/null | wc -l)"
-  echo "✅ share: $(ls $PREFIX/share/mlt-7 2>/dev/null | wc -l)"
+  echo "✅ modules: $(ls $PREFIX/lib/mlt 2>/dev/null | wc -l)"
+  echo "✅ share: $(ls $PREFIX/share/mlt 2>/dev/null | wc -l)"
 
   echo "[OK] MLT BUILT SUCCESS"
 }
