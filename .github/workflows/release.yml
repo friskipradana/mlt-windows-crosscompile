@@ -197,6 +197,14 @@ jobs:
           echo ""
           echo "=== DLL yang tersedia di package (bin/) ==="
           ls "$PREFIX/bin/"*.dll | xargs -n1 basename | sort
+          echo ""
+          echo "=== Subsystem melt.exe (HARUS 'Windows CUI', kalau 'Windows GUI' -> blank di PowerShell) ==="
+          SUBSYS=$(x86_64-w64-mingw32-objdump -p "$PREFIX/bin/melt.exe" | grep -i "^Subsystem")
+          echo "$SUBSYS"
+          if echo "$SUBSYS" | grep -qi "GUI"; then
+            echo "❌ melt.exe adalah Windows GUI subsystem -- akan blank total di Windows!"
+            exit 1
+          fi
 
       # ─────────────────────────────────────────────
       # 8.2 Smoke test melt.exe dengan Wine

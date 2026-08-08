@@ -940,6 +940,14 @@ build_mlt() {
   # Tanpa flag ini, melt.exe & semua DLL modul MLT dynamic-link ke
   # libgcc_s_seh-1.dll / libstdc++-6.dll yang tidak pernah ikut di-package,
   # sehingga Windows loader gagal resolve dependency SEBELUM main() jalan.
+  # FIX BARU (root cause "melt.exe blank" di Windows): SDL2 (SDL2main) by
+  # default me-redefine main() jadi WinMain() dan mem-force linker flag
+  # -mwindows pada apapun yang link ke SDL2, mengubah melt.exe jadi Windows
+  # GUI SUBSYSTEM bukan Console. Efeknya: proses tetap start & selesai
+  # normal (exit code OK), tapi TIDAK PERNAH attach ke console -- semua
+  # printf/stdout MLT hilang ke void, kelihatan "blank" total padahal
+  # binary-nya sendiri sebenarnya jalan. -mconsole di bawah maksa subsystem
+  # balik ke Console, override apapun yang SDL2 set sebelumnya di link order.
   cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
     -DCMAKE_CROSSCOMPILING=ON \
@@ -958,7 +966,7 @@ build_mlt() {
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
     -DCMAKE_C_FLAGS="-I$PREFIX/include -pthread -static-libgcc" \
     -DCMAKE_CXX_FLAGS="-I$PREFIX/include -pthread -static-libgcc -static-libstdc++" \
-    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread -lfnmatchcompat -static-libgcc -static-libstdc++" \
+    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread -lfnmatchcompat -static-libgcc -static-libstdc++ -mconsole" \
     -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread -lfnmatchcompat -static-libgcc -static-libstdc++" \
     -DCMAKE_THREAD_LIBS_INIT="-lwinpthread" \
     -DCMAKE_HAVE_THREADS_LIBRARY=ON \
@@ -1176,6 +1184,27 @@ build_mlt() {
   echo ""
   echo "=== DEBUG: dependency DLL melt.exe (objdump -p) ==="
   $CROSS-objdump -p "$MELT_PATH" | grep -i "DLL Name" || echo "(objdump tidak tersedia atau gagal parse)"
+  echo "===================================================="
+
+  # FIX BARU: validasi subsystem melt.exe HARUS "Windows CUI" (console),
+  # BUKAN "Windows GUI". Kalau ke-detect GUI, melt.exe akan "blank" total
+  # di Windows (proses jalan & exit normal, tapi stdout tidak pernah
+  # attach ke console -- lihat komentar -mconsole di atas). Gagal keras
+  # di sini supaya ketahuan dari log CI, bukan baru ketahuan setelah user
+  # download & test manual di Windows.
+  echo ""
+  echo "=== DEBUG: subsystem melt.exe (harus 'Windows CUI', bukan 'Windows GUI') ==="
+  SUBSYS_LINE=$($CROSS-objdump -p "$MELT_PATH" | grep -i "^Subsystem" || true)
+  echo "$SUBSYS_LINE"
+  if echo "$SUBSYS_LINE" | grep -qi "GUI"; then
+    echo "❌ melt.exe ke-link sebagai Windows GUI subsystem! Ini akan bikin"
+    echo "   melt.exe 'blank' total (tidak ada output apapun) saat dijalankan"
+    echo "   di Windows/PowerShell walau exit code normal. Cek -mconsole di"
+    echo "   CMAKE_EXE_LINKER_FLAGS build_mlt() -- kemungkinan ada dependency"
+    echo "   (SDL2/SDL2main) yang override subsystem lagi setelah -mconsole."
+    exit 1
+  fi
+  echo "  [OK] subsystem console terkonfirmasi"
   echo "===================================================="
 
   echo "[OK] MLT BUILT SUCCESS"
