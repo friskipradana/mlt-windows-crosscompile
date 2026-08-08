@@ -626,33 +626,77 @@ build_mlt() {
   # lib/mlt-7 dan share/mlt-7 (bukan lib/mlt & share/mlt polos seperti v6).
   # Deteksi otomatis nama folder yang sebenarnya dipakai, supaya skrip
   # ini tetap benar walau MLT naik versi lagi di masa depan.
+  #
+  # PENTING: "make install" (dijalankan di atas) SEHARUSNYA sudah menulis
+  # lib/mlt-X dan share/mlt-X langsung ke $PREFIX (karena
+  # -DCMAKE_INSTALL_PREFIX="$PREFIX"). Folder $SRC/mlt-win/build/out
+  # hanyalah staging folder internal MLT untuk melt.exe & modul saat build
+  # berjalan -- TIDAK SELALU berisi 'share/profiles'. Jadi cek $PREFIX
+  # dulu (hasil install asli); baru fallback cari di build/out; baru
+  # fallback terakhir cari di seluruh build tree.
 
-  echo ">>> FALLBACK: modules (auto-detect versioned folder)"
-  LIB_MLT_SRC=$(find "$SRC/mlt-win/build/out/lib" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
+  echo ">>> DEBUG: isi \$PREFIX/lib dan \$PREFIX/share setelah make install"
+  find "$PREFIX/lib" -maxdepth 1 -type d 2>/dev/null || true
+  find "$PREFIX/share" -maxdepth 1 -type d 2>/dev/null || true
+
+  echo ">>> modules: cek hasil 'make install' dulu"
+  LIB_MLT_SRC=$(find "$PREFIX/lib" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
+  if [ -z "$LIB_MLT_SRC" ]; then
+    echo "  [info] tidak ada di \$PREFIX/lib, coba build/out..."
+    LIB_MLT_SRC=$(find "$SRC/mlt-win/build/out/lib" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
+  fi
+  if [ -z "$LIB_MLT_SRC" ]; then
+    echo "  [info] tidak ada di build/out, cari di seluruh build tree..."
+    LIB_MLT_SRC=$(find "$SRC/mlt-win/build" -type d -iname "mlt-*" 2>/dev/null | grep -v "\.build_done" | head -1)
+  fi
+
   if [ -n "$LIB_MLT_SRC" ]; then
     MLT_MOD_NAME=$(basename "$LIB_MLT_SRC")
-    mkdir -p "$PREFIX/lib/$MLT_MOD_NAME"
-    find "$LIB_MLT_SRC" -name "*.dll" | while read dll; do
-      cp "$dll" "$PREFIX/lib/$MLT_MOD_NAME/"
-      echo "  [copied] $(basename "$dll")"
-    done
-    echo "  [OK] modules: $LIB_MLT_SRC -> $PREFIX/lib/$MLT_MOD_NAME"
+    if [ "$LIB_MLT_SRC" != "$PREFIX/lib/$MLT_MOD_NAME" ]; then
+      mkdir -p "$PREFIX/lib/$MLT_MOD_NAME"
+      find "$LIB_MLT_SRC" -name "*.dll" -exec cp {} "$PREFIX/lib/$MLT_MOD_NAME/" \;
+    fi
+    DLL_COUNT=$(find "$PREFIX/lib/$MLT_MOD_NAME" -name "*.dll" 2>/dev/null | wc -l)
+    echo "  [OK] modules: $LIB_MLT_SRC -> $PREFIX/lib/$MLT_MOD_NAME ($DLL_COUNT dll)"
   else
-    echo "  [ERROR] folder lib/mlt* tidak ditemukan di build output!"
-    find "$SRC/mlt-win/build/out/lib" -maxdepth 1 2>/dev/null || true
+    echo "  [ERROR] folder lib/mlt* tidak ditemukan dimanapun!"
+    echo "  Debug: seluruh isi build tree yang mengandung 'mlt':"
+    find "$SRC/mlt-win/build" -iname "*mlt*" -type d 2>/dev/null | head -30
     exit 1
   fi
 
-  echo ">>> FALLBACK: share (auto-detect versioned folder)"
-  SHARE_MLT_SRC=$(find "$SRC/mlt-win/build/out/share" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
+  echo ">>> share: cek hasil 'make install' dulu"
+  SHARE_MLT_SRC=$(find "$PREFIX/share" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
+  if [ -n "$SHARE_MLT_SRC" ] && [ -z "$(find "$SHARE_MLT_SRC" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+    echo "  [info] $SHARE_MLT_SRC ada tapi KOSONG, cari sumber lain..."
+    SHARE_MLT_SRC=""
+  fi
+  if [ -z "$SHARE_MLT_SRC" ]; then
+    echo "  [info] tidak ada/kosong di \$PREFIX/share, coba build/out..."
+    SHARE_MLT_SRC=$(find "$SRC/mlt-win/build/out/share" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
+  fi
+  if [ -z "$SHARE_MLT_SRC" ]; then
+    echo "  [info] tidak ada di build/out, cari folder 'profiles' di seluruh source/build tree..."
+    PROFILES_DIR=$(find "$SRC/mlt-win" -type d -name "profiles" 2>/dev/null | grep -v "/src/" | head -1)
+    if [ -n "$PROFILES_DIR" ]; then
+      SHARE_MLT_SRC=$(dirname "$PROFILES_DIR")
+    fi
+  fi
+
   if [ -n "$SHARE_MLT_SRC" ]; then
     MLT_SHARE_NAME=$(basename "$SHARE_MLT_SRC")
-    mkdir -p "$PREFIX/share/$MLT_SHARE_NAME"
-    cp -r "$SHARE_MLT_SRC/"* "$PREFIX/share/$MLT_SHARE_NAME/"
-    echo "  [OK] share: $SHARE_MLT_SRC -> $PREFIX/share/$MLT_SHARE_NAME"
+    if [ "$SHARE_MLT_SRC" != "$PREFIX/share/$MLT_SHARE_NAME" ]; then
+      mkdir -p "$PREFIX/share/$MLT_SHARE_NAME"
+      cp -r "$SHARE_MLT_SRC/"* "$PREFIX/share/$MLT_SHARE_NAME/" 2>/dev/null || true
+    fi
+    ITEM_COUNT=$(find "$PREFIX/share/$MLT_SHARE_NAME" -mindepth 1 2>/dev/null | wc -l)
+    echo "  [OK] share: $SHARE_MLT_SRC -> $PREFIX/share/$MLT_SHARE_NAME ($ITEM_COUNT items)"
   else
-    echo "  [ERROR] folder share/mlt* tidak ditemukan di build output!"
-    find "$SRC/mlt-win/build/out/share" -maxdepth 1 2>/dev/null || true
+    echo "  [ERROR] folder share/mlt* / profiles tidak ditemukan dimanapun!"
+    echo "  Debug: seluruh isi build tree yang mengandung 'mlt' atau 'profiles':"
+    find "$SRC/mlt-win/build" -iname "*mlt*" -o -iname "profiles" 2>/dev/null | head -30
+    echo "  Debug: seluruh isi source tree (non-build) yang mengandung 'profiles':"
+    find "$SRC/mlt-win" -maxdepth 4 -iname "profiles" 2>/dev/null | head -10
     exit 1
   fi
 
