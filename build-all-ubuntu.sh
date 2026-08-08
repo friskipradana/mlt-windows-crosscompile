@@ -665,26 +665,23 @@ build_mlt() {
     exit 1
   fi
 
-  echo ">>> share: cek hasil 'make install' dulu"
-  SHARE_MLT_SRC=$(find "$PREFIX/share" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
-  if [ -n "$SHARE_MLT_SRC" ] && [ -z "$(find "$SHARE_MLT_SRC" -mindepth 1 -print -quit 2>/dev/null)" ]; then
-    echo "  [info] $SHARE_MLT_SRC ada tapi KOSONG, cari sumber lain..."
-    SHARE_MLT_SRC=""
-  fi
-  if [ -z "$SHARE_MLT_SRC" ]; then
-    echo "  [info] tidak ada/kosong di \$PREFIX/share, coba build/out..."
-    SHARE_MLT_SRC=$(find "$SRC/mlt-win/build/out/share" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
-  fi
-  if [ -z "$SHARE_MLT_SRC" ]; then
-    echo "  [info] tidak ada di build/out, cari folder 'profiles' di seluruh source/build tree..."
-    PROFILES_DIR=$(find "$SRC/mlt-win" -type d -name "profiles" 2>/dev/null | grep -v "/src/" | head -1)
-    if [ -n "$PROFILES_DIR" ]; then
-      SHARE_MLT_SRC=$(dirname "$PROFILES_DIR")
-    fi
+  echo ">>> share: cari folder 'profiles' di seluruh build tree (build-time output MLT_DATA_OUTPUT_DIRECTORY)"
+  # MLT menulis profiles/presets/modules ke MLT_DATA_OUTPUT_DIRECTORY SAAT BUILD
+  # (bukan cuma saat install), lokasi variabel internal ini bisa berbeda nama
+  # folder dengan hasil final di $PREFIX/share (yang di-versioned saat install).
+  # Jadi cari langsung folder 'profiles' di manapun di build tree, lalu pakai
+  # folder induknya sebagai sumber, dan paksa nama tujuan SAMA dengan nama
+  # folder module (MLT_MOD_NAME, misal "mlt-7") supaya konsisten & sesuai
+  # yang di-expect run_melt.ps1.
+  PROFILES_DIR=$(find "$SRC/mlt-win/build" -type d -name "profiles" 2>/dev/null | head -1)
+  if [ -z "$PROFILES_DIR" ]; then
+    echo "  [info] tidak ketemu di build/, coba \$PREFIX/share..."
+    PROFILES_DIR=$(find "$PREFIX/share" -type d -name "profiles" 2>/dev/null | head -1)
   fi
 
-  if [ -n "$SHARE_MLT_SRC" ]; then
-    MLT_SHARE_NAME=$(basename "$SHARE_MLT_SRC")
+  if [ -n "$PROFILES_DIR" ]; then
+    SHARE_MLT_SRC=$(dirname "$PROFILES_DIR")
+    MLT_SHARE_NAME="$MLT_MOD_NAME"   # paksa sama dengan nama folder module (mlt-7)
     if [ "$SHARE_MLT_SRC" != "$PREFIX/share/$MLT_SHARE_NAME" ]; then
       mkdir -p "$PREFIX/share/$MLT_SHARE_NAME"
       cp -r "$SHARE_MLT_SRC/"* "$PREFIX/share/$MLT_SHARE_NAME/" 2>/dev/null || true
@@ -692,11 +689,13 @@ build_mlt() {
     ITEM_COUNT=$(find "$PREFIX/share/$MLT_SHARE_NAME" -mindepth 1 2>/dev/null | wc -l)
     echo "  [OK] share: $SHARE_MLT_SRC -> $PREFIX/share/$MLT_SHARE_NAME ($ITEM_COUNT items)"
   else
-    echo "  [ERROR] folder share/mlt* / profiles tidak ditemukan dimanapun!"
-    echo "  Debug: seluruh isi build tree yang mengandung 'mlt' atau 'profiles':"
-    find "$SRC/mlt-win/build" -iname "*mlt*" -o -iname "profiles" 2>/dev/null | head -30
-    echo "  Debug: seluruh isi source tree (non-build) yang mengandung 'profiles':"
-    find "$SRC/mlt-win" -maxdepth 4 -iname "profiles" 2>/dev/null | head -10
+    echo "  [ERROR] folder 'profiles' tidak ditemukan dimanapun di build tree atau \$PREFIX!"
+    echo "  Debug: struktur $SRC/mlt-win/build/out (2 level):"
+    find "$SRC/mlt-win/build/out" -maxdepth 2 2>/dev/null || echo "    (folder out/ tidak ada)"
+    echo "  Debug: struktur $SRC/mlt-win/build (2 level):"
+    find "$SRC/mlt-win/build" -maxdepth 2 -type d 2>/dev/null || true
+    echo "  Debug: semua folder bernama 'profiles' atau 'presets' di source tree:"
+    find "$SRC/mlt-win" -maxdepth 3 \( -iname "profiles" -o -iname "presets" \) 2>/dev/null || true
     exit 1
   fi
 
