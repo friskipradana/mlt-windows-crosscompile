@@ -981,20 +981,68 @@ build_mlt() {
     echo "  [copied] $(basename "$dll")"
   done
 
-  echo ">>> FALLBACK: modules"
+  echo ">>> Modules (cek hasil 'make install' normal dulu)"
   mkdir -p "$PREFIX/lib/mlt"
-  MODULES_SRC=$(find "$SRC/mlt-win/build" -maxdepth 4 -type d -path "*/lib/mlt" 2>/dev/null | head -1)
-  if [ -z "$MODULES_SRC" ]; then
-    MODULES_SRC="$SRC/mlt-win/build/out/lib/mlt"
-  fi
-  if [ -d "$MODULES_SRC" ]; then
-    find "$MODULES_SRC" -name "*.dll" | while read dll; do
-      cp "$dll" "$PREFIX/lib/mlt/"
-      echo "  [copied] $(basename "$dll")"
-    done
-  fi
   DLL_COUNT=$(find "$PREFIX/lib/mlt" -name "*.dll" 2>/dev/null | wc -l)
+
+  if [ "$DLL_COUNT" -gt 0 ]; then
+    echo "  [OK] make install sudah taruh $DLL_COUNT modul di \$PREFIX/lib/mlt, skip fallback"
+  else
+    echo "  [WARN] \$PREFIX/lib/mlt kosong setelah make install, coba FALLBACK..."
+
+    # FIX: perluas pencarian -- sebelumnya cuma cari path persis "*/lib/mlt"
+    # yang bisa saja tidak cocok dengan struktur build tree v6.26.1. Coba
+    # beberapa lokasi umum dulu, urutan dari yang paling spesifik.
+    MODULES_SRC=""
+    for candidate in \
+      "$SRC/mlt-win/build/out/lib/mlt" \
+      "$(find "$SRC/mlt-win/build" -maxdepth 5 -type d -path "*/lib/mlt" 2>/dev/null | head -1)" \
+      "$(find "$SRC/mlt-win/build" -maxdepth 5 -type d -name "mlt" 2>/dev/null | head -1)"
+    do
+      if [ -n "$candidate" ] && [ -d "$candidate" ] && [ -n "$(find "$candidate" -maxdepth 1 -name '*.dll' 2>/dev/null)" ]; then
+        MODULES_SRC="$candidate"
+        break
+      fi
+    done
+
+    if [ -n "$MODULES_SRC" ]; then
+      echo "  [info] Ketemu modul di: $MODULES_SRC"
+      find "$MODULES_SRC" -maxdepth 1 -name "*.dll" | while read dll; do
+        cp "$dll" "$PREFIX/lib/mlt/"
+        echo "  [copied] $(basename "$dll")"
+      done
+    else
+      # FIX: fallback terakhir -- cari LANGSUNG semua .dll di seluruh build
+      # tree yang namanya berpola modul MLT (mlt*.dll), TAPI kecualikan
+      # libmlt-*.dll / libmlt++-*.dll (itu core library, sudah di-handle
+      # terpisah di atas), supaya tidak salah copy core lib sebagai modul.
+      echo "  [WARN] Lokasi standar tidak ketemu, coba pencarian broad di seluruh build tree..."
+      find "$SRC/mlt-win/build" -iname "mlt*.dll" ! -iname "libmlt*.dll" 2>/dev/null | while read dll; do
+        cp "$dll" "$PREFIX/lib/mlt/"
+        echo "  [copied, broad-search] $(basename "$dll")"
+      done
+    fi
+
+    DLL_COUNT=$(find "$PREFIX/lib/mlt" -name "*.dll" 2>/dev/null | wc -l)
+  fi
+
   echo "  [OK] modules: $DLL_COUNT dll di \$PREFIX/lib/mlt"
+
+  # FIX: JANGAN lanjut diam-diam kalau modul 0. Tanpa modul, melt.exe akan
+  # start tapi semua producer/consumer/filter (avformat, sdl2, xml, dst)
+  # tidak akan ke-load -- build kelihatan "sukses" tapi output-nya rusak
+  # total. Gagal keras di sini + dump debug info supaya ketahuan dari log,
+  # bukan ketahuan belakangan pas user buka folder lib/ di Windows.
+  if [ "$DLL_COUNT" -eq 0 ]; then
+    echo "❌ TIDAK ADA modul MLT yang ke-copy ke \$PREFIX/lib/mlt!"
+    echo ""
+    echo "=== DEBUG: semua .dll yang ketemu di build tree ==="
+    find "$SRC/mlt-win/build" -iname "*.dll" 2>/dev/null | sort
+    echo "===================================================="
+    echo ""
+    echo "Build MLT akan dianggap GAGAL karena tanpa modul, melt.exe tidak berguna."
+    exit 1
+  fi
 
   echo ">>> FALLBACK: share (cari folder 'profiles' langsung, paling reliable)"
   mkdir -p "$PREFIX/share/mlt"
@@ -1011,6 +1059,25 @@ build_mlt() {
   fi
   ITEM_COUNT=$(find "$PREFIX/share/mlt" -mindepth 1 2>/dev/null | wc -l)
   echo "  [OK] share: $ITEM_COUNT items di \$PREFIX/share/mlt"
+
+  # FIX: sama seperti modul lib/mlt -- JANGAN lanjut diam-diam kalau share
+  # kosong. Yang paling kritis adalah folder profiles/ (PAL, NTSC, dll)
+  # karena tanpa itu melt.exe tidak bisa resolve video profile default dan
+  # akan gagal start / gagal proses. Cek keberadaan profiles secara spesifik,
+  # bukan cuma ITEM_COUNT umum (yang bisa saja >0 dari file lain tapi
+  # profiles-nya sendiri tetap hilang).
+  if [ "$ITEM_COUNT" -eq 0 ] || [ ! -d "$PREFIX/share/mlt/profiles" ]; then
+    echo "❌ \$PREFIX/share/mlt kosong atau folder 'profiles' tidak ada!"
+    echo ""
+    echo "=== DEBUG: semua folder 'profiles' yang ketemu di build tree ==="
+    find "$SRC/mlt-win/build" -type d -name "profiles" 2>/dev/null
+    echo "=== DEBUG: isi \$PREFIX/share/mlt saat ini ==="
+    find "$PREFIX/share/mlt" -mindepth 1 2>/dev/null | head -20
+    echo "===================================================="
+    echo ""
+    echo "Build MLT akan dianggap GAGAL karena tanpa profiles, melt.exe tidak bisa jalan."
+    exit 1
+  fi
 
   # Copy semua runtime DLL dependency ke bin/, biar Windows loader
   # bisa resolve semua dependency saat melt.exe dijalankan.
@@ -1041,16 +1108,64 @@ generate_run_melt_script() {
   cat > "$PREFIX/run_melt.ps1" << 'EOF'
 # run_melt.ps1 (auto-generated by build-all-ubuntu.sh, MLT v6)
 # PowerShell script untuk menjalankan melt.exe dengan environment MLT yang benar
+
 $env:MLT_HOME = $PSScriptRoot
+
+# FIX: melt.exe bisa ada di root folder ini (kalau package di-flatten) ATAU
+# di subfolder bin\ (layout mentah hasil build-all-ubuntu.sh). Cek dua-duanya
+# supaya script tetap jalan apapun cara packaging-nya, dan JANGAN diam kalau
+# tidak ketemu -- print error jelas daripada silent fail.
+$MeltExe = $null
+foreach ($candidate in @("$env:MLT_HOME\melt.exe", "$env:MLT_HOME\bin\melt.exe")) {
+    if (Test-Path $candidate) {
+        $MeltExe = $candidate
+        break
+    }
+}
+
+if (-not $MeltExe) {
+    Write-Host "[ERROR] melt.exe tidak ditemukan di:" -ForegroundColor Red
+    Write-Host "  - $env:MLT_HOME\melt.exe"
+    Write-Host "  - $env:MLT_HOME\bin\melt.exe"
+    Write-Host "Pastikan package MLT lengkap (melt.exe, DLL, folder lib/ share/) ada di sini."
+    exit 1
+}
+
 $env:MLT_REPOSITORY = "$env:MLT_HOME\lib\mlt"
 $env:MLT_DATA = "$env:MLT_HOME\share\mlt"
 $env:MLT_PROFILES_PATH = "$env:MLT_HOME\share\mlt\profiles"
-$env:PATH = "$env:MLT_HOME\bin;$env:MLT_HOME;$env:PATH"
-Set-Location $env:MLT_HOME
-echo "" | & "$env:MLT_HOME\melt.exe" $args
-EOF
-  echo "[OK] run_melt.ps1 generated (v6, folder polos: mlt)"
+# FIX: masukkan SEMUA kemungkinan lokasi DLL ke PATH (root, bin\, dan folder
+# tempat melt.exe itu sendiri berada) supaya Windows loader bisa resolve
+# dependency DLL apapun cara packaging-nya.
+$MeltDir = Split-Path $MeltExe -Parent
+$env:PATH = "$MeltDir;$env:MLT_HOME\bin;$env:MLT_HOME;$env:PATH"
+
+if (-not (Test-Path $env:MLT_REPOSITORY)) {
+    Write-Host "[WARN] MLT_REPOSITORY tidak ditemukan: $env:MLT_REPOSITORY" -ForegroundColor Yellow
+    Write-Host "  melt.exe mungkin bisa jalan tapi modul (avformat, sdl2, dll) tidak akan ke-load."
 }
+
+Set-Location $env:MLT_HOME
+
+# FIX: hapus "echo "" | " pipe -- itu tidak perlu untuk -version/-query dan
+# berpotensi mengaburkan output/exit code asli melt.exe. Panggil langsung.
+& $MeltExe @args
+$ExitCode = $LASTEXITCODE
+
+if ($ExitCode -eq -1073741515 -or $ExitCode -eq 3221225781) {
+    Write-Host ""
+    Write-Host "[ERROR] melt.exe gagal start: STATUS_DLL_NOT_FOUND (0xC0000135)" -ForegroundColor Red
+    Write-Host "  Salah satu DLL dependency tidak ketemu. Cek folder ini sudah berisi" 
+    Write-Host "  semua .dll runtime (bukan cuma libmlt-6.dll/libmlt++-3.dll), atau"
+    Write-Host "  pakai tool 'Dependencies' (github.com/lucasg/Dependencies) untuk"
+    Write-Host "  identifikasi DLL mana yang hilang."
+}
+
+exit $ExitCode
+EOF
+  echo "[OK] run_melt.ps1 generated (v6, folder polos: mlt, robust ke lokasi melt.exe)"
+}
+
 
 
 # ─── MAIN ───────────────────────────────────────────────────────────────────
