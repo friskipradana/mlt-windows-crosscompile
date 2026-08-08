@@ -384,12 +384,16 @@ build_glib() {
 
   # FIX: tidak ada opsi -Dpcre2 di glib 2.74+ (dihapus, jadi mandatory)
   # FIX: tidak ada opsi -Dglib_assert / -Dglib_checks di versi ini
-  # FIX: --wrap-mode=nodownload -- kalau zlib (atau dependency lain) somehow
-  # tetap tidak ketemu, meson akan GAGAL LANGSUNG dengan pesan jelas
-  # "Dependency zlib not found", bukan diam-diam nyoba download source
-  # fallback dari zlib.net/fossils dan mati karena hash mismatch di sana.
+  # CATATAN: JANGAN pakai --wrap-mode=nodownload di sini. glib butuh
+  # libffi lewat subproject wrap (tidak ada libffi cross-compiled untuk
+  # mingw di $PREFIX), dan nodownload akan mem-block download subproject
+  # itu juga -- bukan cuma zlib -- sehingga malah gagal dengan error
+  # "Automatic wrap-based subproject downloading is disabled".
+  # Masalah zlib fallback ke zlib.net/fossils sudah beres lewat
+  # generate_zlib_pc() di atas: karena zlib.pc sudah SELALU ketemu lewat
+  # pkg-config sebelum meson jalan, meson tidak akan pernah butuh coba
+  # fallback-download zlib sama sekali -- jadi wrap-mode default aman.
   meson_build glib-2.78.0 \
-    --wrap-mode=nodownload \
     -Dtests=false \
     -Dinstalled_tests=false \
     -Dlibmount=disabled \
