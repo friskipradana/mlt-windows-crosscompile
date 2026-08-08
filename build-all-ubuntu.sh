@@ -1,10 +1,31 @@
 #!/bin/bash
 # build-all-ubuntu.sh - Cross compile MLT for Windows from Ubuntu (GitHub Actions)
 # Merged & fixed from working Alpine WSL version
-# FIX (latest): generate zlib.pc MANUAL setelah build zlib, supaya meson
-# (baik native maupun cross/host) SELALU nemu zlib lewat pkg-config dan
-# TIDAK PERNAH trigger fallback download dari zlib.net/fossils (yang
-# checksum-nya sering mismatch karena upstream fossil archive tidak stabil).
+#
+# FIX (latest, PENYEBAB melt.exe RUSAK DI UBUNTU): melt.exe hasil build Ubuntu
+# selama ini TIDAK PERNAH membawa runtime DLL dari toolchain mingw-w64
+# Ubuntu itu sendiri (libgcc_s_seh-1.dll, libstdc++-6.dll). Semua binary yang
+# dihasilkan x86_64-w64-mingw32-g++ default-nya DYNAMIC-LINK ke dua DLL itu,
+# beda dengan toolchain di Alpine WSL yang defaultnya lebih sering
+# static-link runtime-nya sendiri. Akibatnya: melt.exe di Ubuntu gagal
+# resolve DLL SEBELUM main() sempat jalan (Windows loader error), sehingga
+# kelihatan "diam total" / "-version tidak muncul apa-apa" -- bukan crash
+# dengan pesan, tapi silent load failure (STATUS_DLL_NOT_FOUND khas ini).
+# Ini juga menjelaskan kenapa exe hasil Ubuntu tetap tidak jalan walau
+# ditimpakan ke folder Alpine yang lengkap: DLL yang exe Ubuntu butuhkan
+# (libgcc_s_seh-1.dll dkk) memang tidak ada sama sekali di folder manapun.
+#
+# FIX: 1) paksa -static-libgcc -static-libstdc++ di SEMUA jalur build
+#         (autoconf/cmake/meson/MLT sendiri) supaya binary tidak butuh
+#         DLL runtime GCC eksternal sama sekali.
+#      2) sebagai jaring pengaman tambahan (kalau ada dependency pihak
+#         ketiga yang tetap dynamic-link), copy_mingw_runtime_dlls() akan
+#         cari & copy libgcc_s_seh-1.dll / libstdc++-6.dll / libwinpthread-1.dll
+#         langsung dari toolchain ke $PREFIX/bin sebelum packaging.
+#      3) generate zlib.pc MANUAL setelah build zlib, supaya meson (baik
+#         native maupun cross/host) SELALU nemu zlib lewat pkg-config dan
+#         TIDAK PERNAH trigger fallback download dari zlib.net/fossils.
+#
 # Usage: ./build-all-ubuntu.sh
 
 set -e
@@ -21,9 +42,13 @@ export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR="$PREFIX"
 
 # Propagate flags ke semua build
-export CFLAGS="-I$PREFIX/include -pthread"
-export CXXFLAGS="-I$PREFIX/include -pthread"
-export LDFLAGS="-L$PREFIX/lib -lwinpthread"
+# FIX: -static-libgcc / -static-libstdc++ ditambahkan di CFLAGS/CXXFLAGS
+# JUGA (bukan cuma LDFLAGS) karena beberapa build system (autoconf configure
+# scripts terutama) memakai CFLAGS/CXXFLAGS lagi di tahap link, tidak murni
+# LDFLAGS. Menaruh di kedua tempat memastikan flag ini kebawa di semua jalur.
+export CFLAGS="-I$PREFIX/include -pthread -static-libgcc"
+export CXXFLAGS="-I$PREFIX/include -pthread -static-libgcc -static-libstdc++"
+export LDFLAGS="-L$PREFIX/lib -lwinpthread -static-libgcc -static-libstdc++"
 
 mkdir -p "$SRC" "$PREFIX/lib" "$PREFIX/bin" "$PREFIX/include"
 
@@ -49,6 +74,9 @@ download_if_missing() {
 
 # ─── Meson cross file ───────────────────────────────────────────────────────
 # FIX: c_args/cpp_args pindah ke [built-in options] (deprecated di [properties] sejak meson 1.2+)
+# FIX: tambahkan -static-libgcc/-static-libstdc++ ke *_link_args supaya
+# semua target yang dibuild lewat meson (glib, harfbuzz, pango, dst) juga
+# tidak dynamic-link ke runtime DLL GCC.
 setup_crossfile() {
   cat > "$CROSS_FILE" << EOF
 [binaries]
@@ -71,9 +99,9 @@ needs_exe_wrapper = true
 
 [built-in options]
 c_args = ['-I$PREFIX/include']
-c_link_args = ['-L$PREFIX/lib']
+c_link_args = ['-L$PREFIX/lib', '-static-libgcc']
 cpp_args = ['-I$PREFIX/include']
-cpp_link_args = ['-L$PREFIX/lib']
+cpp_link_args = ['-L$PREFIX/lib', '-static-libgcc', '-static-libstdc++']
 EOF
 
   echo "[OK] Cross file: $CROSS_FILE"
@@ -122,6 +150,43 @@ setup_pthread_dll() {
   fi
 }
 
+# ─── FIX BARU: copy runtime DLL GCC (libgcc_s_seh-1.dll, libstdc++-6.dll) ────
+# Ini JARING PENGAMAN kedua di atas -static-libgcc/-static-libstdc++.
+# Kalaupun semua target sudah static-link runtime-nya sendiri, dependency
+# pihak ketiga (misal FFmpeg, atau library yang di-build tanpa lewat
+# cmake_build/meson_build/autoconf_build helper kita) bisa saja tetap
+# dynamic-link. Copy langsung dari toolchain supaya folder $PREFIX/bin
+# SELALU punya DLL ini, apapun yang terjadi di tahap compile.
+copy_mingw_runtime_dlls() {
+  echo ">>> Copying MinGW runtime DLLs (jaring pengaman tambahan)..."
+
+  for dllname in libgcc_s_seh-1.dll libgcc_s_dw2-1.dll libstdc++-6.dll libwinpthread-1.dll; do
+    local found=""
+
+    # 1) tanya langsung ke compiler -- ini cara paling akurat karena
+    #    otomatis sesuai versi & exception-model yang benar-benar dipakai
+    #    saat compile (SEH untuk x86_64, kadang DW2 untuk varian tertentu).
+    local probe
+    probe=$($CROSS-gcc -print-file-name="$dllname" 2>/dev/null || true)
+    if [ -n "$probe" ] && [ -f "$probe" ]; then
+      found="$probe"
+    fi
+
+    # 2) fallback: cari di seluruh /usr (paket mingw-w64 Ubuntu biasanya
+    #    taruh di /usr/lib/gcc/x86_64-w64-mingw32/<ver>/)
+    if [ -z "$found" ]; then
+      found=$(find /usr -iname "$dllname" 2>/dev/null | head -1)
+    fi
+
+    if [ -n "$found" ] && [ -f "$found" ]; then
+      cp -f "$found" "$PREFIX/bin/"
+      echo "  [copied] $dllname <- $found"
+    else
+      echo "  [info] $dllname tidak ditemukan (kemungkinan memang tidak dibutuhkan, aman diabaikan)"
+    fi
+  done
+}
+
 setup_cross_env() {
   setup_crossfile
   setup_pthread_lib
@@ -129,6 +194,7 @@ setup_cross_env() {
 }
 
 # ─── cmake helper ───────────────────────────────────────────────────────────
+# FIX: tambahkan -static-libgcc -static-libstdc++ ke EXE/SHARED linker flags.
 cmake_build() {
   local dir="$1"; shift
   # Skip kalau sudah berhasil di-build
@@ -152,10 +218,10 @@ cmake_build() {
     -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
     -DBUILD_SHARED_LIBS=ON \
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-    -DCMAKE_C_FLAGS="-I$PREFIX/include" \
-    -DCMAKE_CXX_FLAGS="-I$PREFIX/include" \
-    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib" \
+    -DCMAKE_C_FLAGS="-I$PREFIX/include -static-libgcc" \
+    -DCMAKE_CXX_FLAGS="-I$PREFIX/include -static-libgcc -static-libstdc++" \
+    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -static-libgcc -static-libstdc++" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -static-libgcc -static-libstdc++" \
     "$@"
   make -j$JOBS && make install
   touch "$SRC/$dir/.build_done"
@@ -175,8 +241,8 @@ autoconf_build() {
     --prefix="$PREFIX" \
     --enable-shared \
     --disable-static \
-    CFLAGS="-I$PREFIX/include" \
-    LDFLAGS="-L$PREFIX/lib" \
+    CFLAGS="-I$PREFIX/include -static-libgcc" \
+    LDFLAGS="-L$PREFIX/lib -static-libgcc -static-libstdc++" \
     PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
     "$@"
   make -j$JOBS && make install
@@ -454,8 +520,8 @@ build_fontconfig() {
       --prefix="$PREFIX" \
       --enable-shared \
       --disable-static \
-      CFLAGS="-I$PREFIX/include" \
-      LDFLAGS="-L$PREFIX/lib" \
+      CFLAGS="-I$PREFIX/include -static-libgcc" \
+      LDFLAGS="-L$PREFIX/lib -static-libgcc -static-libstdc++" \
       PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
     make -j$JOBS
     make install-exec
@@ -614,8 +680,8 @@ build_ffmpeg() {
       --enable-libx264 \
       --pkg-config=pkg-config \
       --pkg-config-flags="--define-prefix" \
-      --extra-cflags="-I$PREFIX/include" \
-      --extra-ldflags="-L$PREFIX/lib" \
+      --extra-cflags="-I$PREFIX/include -static-libgcc" \
+      --extra-ldflags="-L$PREFIX/lib -static-libgcc -static-libstdc++" \
       --extra-libs="-lx264"
     make -j$JOBS && make install
     touch ".build_done"
@@ -869,6 +935,11 @@ build_mlt() {
   rm -rf build
   mkdir build && cd build
 
+  # FIX: -static-libgcc -static-libstdc++ ditambahkan di EXE/SHARED linker
+  # flags -- ini adalah PENYEBAB UTAMA melt.exe "diam total" di Ubuntu.
+  # Tanpa flag ini, melt.exe & semua DLL modul MLT dynamic-link ke
+  # libgcc_s_seh-1.dll / libstdc++-6.dll yang tidak pernah ikut di-package,
+  # sehingga Windows loader gagal resolve dependency SEBELUM main() jalan.
   cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
     -DCMAKE_CROSSCOMPILING=ON \
@@ -885,10 +956,10 @@ build_mlt() {
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON \
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-    -DCMAKE_C_FLAGS="-I$PREFIX/include -pthread" \
-    -DCMAKE_CXX_FLAGS="-I$PREFIX/include -pthread" \
-    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread -lfnmatchcompat" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread -lfnmatchcompat" \
+    -DCMAKE_C_FLAGS="-I$PREFIX/include -pthread -static-libgcc" \
+    -DCMAKE_CXX_FLAGS="-I$PREFIX/include -pthread -static-libgcc -static-libstdc++" \
+    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread -lfnmatchcompat -static-libgcc -static-libstdc++" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread -lfnmatchcompat -static-libgcc -static-libstdc++" \
     -DCMAKE_THREAD_LIBS_INIT="-lwinpthread" \
     -DCMAKE_HAVE_THREADS_LIBRARY=ON \
     -DCMAKE_USE_WIN32_THREADS_INIT=OFF \
@@ -1099,6 +1170,14 @@ build_mlt() {
   echo "✅ modules: $(ls $PREFIX/lib/mlt 2>/dev/null | wc -l)"
   echo "✅ share: $(ls $PREFIX/share/mlt 2>/dev/null | wc -l)"
 
+  # FIX BARU: dump dependency DLL dari melt.exe pakai objdump, supaya kalau
+  # ternyata masih ada DLL yang tidak ke-cover setelah static-link fix di
+  # atas, ketahuan LANGSUNG dari log CI -- bukan tebak-tebakan lagi.
+  echo ""
+  echo "=== DEBUG: dependency DLL melt.exe (objdump -p) ==="
+  $CROSS-objdump -p "$MELT_PATH" | grep -i "DLL Name" || echo "(objdump tidak tersedia atau gagal parse)"
+  echo "===================================================="
+
   echo "[OK] MLT BUILT SUCCESS"
 }
 
@@ -1201,6 +1280,11 @@ build_libebur128
 build_dlfcn
 build_fnmatch_shim
 build_mlt
+
+# FIX BARU: jaring pengaman terakhir sebelum generate run script --
+# pastikan runtime DLL GCC ada di $PREFIX/bin apapun yang terjadi di atas.
+copy_mingw_runtime_dlls
+
 generate_run_melt_script
 
 echo ""

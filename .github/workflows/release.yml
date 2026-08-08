@@ -29,10 +29,15 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 3. Install tools
+      # FIX: tambah "wine" + "wine32:i386" di sini sekalian (bukan step
+      # terpisah nanti) supaya apt cache/update tidak dobel jalan, dan
+      # kalau gagal install wine, build langsung ketahuan gagal dari awal
+      # bukan baru gagal di step smoke test paling akhir.
       # ─────────────────────────────────────────────
       - name: Install build tools
         run: |
           set -ex
+          sudo dpkg --add-architecture i386
           sudo apt-get update -qq
           sudo apt-get install -y \
             gcc-mingw-w64-x86-64 \
@@ -58,10 +63,20 @@ jobs:
             python3 \
             python3-pip \
             libffi-dev \
-            libglib2.0-dev
+            libglib2.0-dev \
+            wine wine64 wine32:i386
 
       # ─────────────────────────────────────────────
       # 4. Cache deps
+      # FIX: bump cache key ke v3 karena build-all-ubuntu.sh berubah
+      # (-static-libgcc/-static-libstdc++ ditambahkan di semua tahap).
+      # Cache lama (v2) dibuild TANPA flag ini, jadi kalau tetap dipakai,
+      # semua dependency yang sudah ke-cache (zlib, glib, ffmpeg, dst)
+      # tidak akan ke-rebuild dan hasilnya tetap dynamic-link ke libgcc/
+      # libstdc++ seperti sebelumnya -- fix ini jadi percuma. hashFiles
+      # sebenarnya sudah otomatis beda kalau isi file berubah, tapi bump
+      # versi manual dibuat eksplisit di sini supaya jelas terlihat di log
+      # cache mana yang dipakai.
       # ─────────────────────────────────────────────
       - name: Cache deps
         id: cache-deps
@@ -70,9 +85,9 @@ jobs:
           path: |
             ~/tools/win-deps
             ~/tools/src
-          key: mlt-deps-v2-${{ runner.os }}-${{ hashFiles('build-all-ubuntu.sh') }}
+          key: mlt-deps-v3-${{ runner.os }}-${{ hashFiles('build-all-ubuntu.sh') }}
           restore-keys: |
-            mlt-deps-v2-${{ runner.os }}-
+            mlt-deps-v3-${{ runner.os }}-
 
       # ─────────────────────────────────────────────
       # 5. Init dirs (hanya kalau cache miss)
@@ -85,7 +100,7 @@ jobs:
                    $HOME/tools/src
 
       # ─────────────────────────────────────────────
-      # 7. Build
+      # 6. Build
       # build-all-ubuntu.sh SUDAH generate run_melt.ps1 yang robust
       # (deteksi lokasi melt.exe fleksibel, deteksi STATUS_DLL_NOT_FOUND,
       # tanpa pipe "echo "" |" yang lama) langsung ke $PREFIX/run_melt.ps1.
@@ -165,6 +180,55 @@ jobs:
 
           echo "=== run_melt.ps1 dari build script ==="
           ls -lh "$PREFIX/run_melt.ps1" || { echo "❌ run_melt.ps1 tidak ditemukan di \$PREFIX!"; exit 1; }
+
+      # ─────────────────────────────────────────────
+      # 8.1 Dump DLL dependencies (debug, selalu jalan)
+      # FIX BARU: pakai objdump untuk lihat semua DLL yang melt.exe minta.
+      # Kalau ternyata masih ada libgcc_s_seh-1.dll / libstdc++-6.dll di
+      # sini padahal -static-libgcc/-static-libstdc++ sudah dipasang,
+      # berarti ada satu jalur compile yang belum kena flag itu -- akan
+      # kelihatan jelas di log, tidak perlu tebak-tebakan lagi.
+      # ─────────────────────────────────────────────
+      - name: Dump melt.exe DLL dependencies
+        run: |
+          PREFIX="$HOME/tools/win-deps"
+          echo "=== melt.exe dependencies ==="
+          x86_64-w64-mingw32-objdump -p "$PREFIX/bin/melt.exe" | grep -i "DLL Name"
+          echo ""
+          echo "=== DLL yang tersedia di package (bin/) ==="
+          ls "$PREFIX/bin/"*.dll | xargs -n1 basename | sort
+
+      # ─────────────────────────────────────────────
+      # 8.2 Smoke test melt.exe dengan Wine
+      # FIX BARU: langkah ini sebelumnya TIDAK ADA -- validasi lama cuma
+      # cek file exist, bukan cek melt.exe benar-benar bisa START & LOAD
+      # MODUL di lingkungan mirip-Windows (lewat Wine). Kalau DLL runtime
+      # GCC hilang (libgcc_s_seh-1.dll dkk, root cause paling mungkin dari
+      # gejala "melt.exe diam total" yang kamu alami), step ini akan
+      # gagal SEKARANG di CI -- bukan baru ketahuan setelah kamu download
+      # & jalankan manual di Windows asli.
+      # ─────────────────────────────────────────────
+      - name: Smoke test melt.exe with Wine
+        run: |
+          set -ex
+          PREFIX="$HOME/tools/win-deps"
+          export WINEDEBUG=-all
+          export WINEARCH=win64
+          export MLT_REPOSITORY="$PREFIX/lib/mlt"
+          export MLT_DATA="$PREFIX/share/mlt"
+          export MLT_PROFILES_PATH="$PREFIX/share/mlt/profiles"
+          export WINEPATH="$PREFIX/bin"
+
+          echo "=== melt -version ==="
+          wine "$PREFIX/bin/melt.exe" -version || { echo "❌ melt.exe GAGAL start di Wine (kemungkinan besar: DLL runtime hilang, cek step 'Dump melt.exe DLL dependencies' di atas)"; exit 1; }
+
+          echo "=== melt -query consumers (cek modul ke-load) ==="
+          wine "$PREFIX/bin/melt.exe" -query "consumers" 2>&1 | tee /tmp/melt-query.log
+          if ! grep -qi "avformat" /tmp/melt-query.log; then
+            echo "❌ Modul avformat tidak ke-load -- cek dependency FFmpeg DLL di lib/mlt/"
+            exit 1
+          fi
+          echo "✅ melt.exe berhasil start dan modul ter-load di Wine"
 
       # ─────────────────────────────────────────────
       # 10. Package
