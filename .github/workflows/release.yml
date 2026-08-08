@@ -62,13 +62,6 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 4. Cache deps
-      # FIX: Cache harus SEBELUM hard clean, bukan sesudah.
-      # Kalau hard clean dulu, cache tidak ada gunanya sama sekali.
-      # Key pakai hash build script supaya cache otomatis invalid
-      # kalau scriptnya berubah.
-      # FIX v2: naikkan versi prefix v1 -> v2 supaya cache lama (dari
-      # build MLT v7 sebelumnya) tidak ke-restore lewat restore-keys
-      # partial match dan mengotori build MLT v6 yang baru.
       # ─────────────────────────────────────────────
       - name: Cache deps
         id: cache-deps
@@ -83,9 +76,6 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 5. Init dirs (hanya kalau cache miss)
-      # FIX: Jangan hard clean kalau cache baru di-restore,
-      # karena itu akan membuang cache yang baru saja diambil.
-      # Cukup mkdir kalau folder belum ada.
       # ─────────────────────────────────────────────
       - name: Init dirs
         run: |
@@ -96,6 +86,12 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 7. Build
+      # build-all-ubuntu.sh SUDAH generate run_melt.ps1 yang robust
+      # (deteksi lokasi melt.exe fleksibel, deteksi STATUS_DLL_NOT_FOUND,
+      # tanpa pipe "echo "" |" yang lama) langsung ke $PREFIX/run_melt.ps1.
+      # JANGAN generate ulang versi lain di workflow -- itu cuma bikin
+      # dua sumber kebenaran yang gampang saling menimpa dan salah satu
+      # (yang lebih basic/lama) berakhir ke-package alih-alih yang bagus.
       # ─────────────────────────────────────────────
       - name: Build
         run: |
@@ -137,8 +133,9 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 8. Validate output
-      # FIX: MLT v6 pakai folder POLOS tanpa versi -> lib/mlt, share/mlt
-      # (bukan lib/mlt-7 / share/mlt-7 seperti v7)
+      # FIX: cek jumlah DLL modul, bukan cuma keberadaan folder -- folder
+      # bisa saja ada (dari mkdir -p) tapi KOSONG, dan "ls" tetap exit 0
+      # untuk folder kosong sehingga tidak akan gagal-cepat tanpa cek ini.
       # ─────────────────────────────────────────────
       - name: Validate output
         run: |
@@ -150,38 +147,35 @@ jobs:
           ls "$PREFIX/bin/"*.dll | wc -l
 
           echo "=== MLT modules ==="
-          ls "$PREFIX/lib/mlt/" 2>/dev/null || echo "WARNING: lib/mlt tidak ditemukan"
-          ls "$PREFIX/share/mlt/" 2>/dev/null || echo "WARNING: share/mlt tidak ditemukan"
+          MOD_COUNT=$(find "$PREFIX/lib/mlt" -maxdepth 1 -name "*.dll" 2>/dev/null | wc -l)
+          echo "Jumlah modul DLL: $MOD_COUNT"
+          if [ "$MOD_COUNT" -eq 0 ]; then
+            echo "❌ lib/mlt KOSONG -- melt.exe tidak akan bisa load modul apapun!"
+            find "$PREFIX/lib/mlt" -type f 2>/dev/null || echo "(folder lib/mlt tidak ada sama sekali)"
+            exit 1
+          fi
+          ls "$PREFIX/lib/mlt/"
 
-      # ─────────────────────────────────────────────
-      # 9. Generate run_melt.ps1
-      # FIX: path folder POLOS (mlt, bukan mlt-7) sesuai MLT v6
-      # ─────────────────────────────────────────────
-      - name: Generate run_melt.ps1
-        run: |
-          cat > run_melt.ps1 << 'EOF'
-          # run_melt.ps1
-          $env:MLT_HOME = $PSScriptRoot
+          echo "=== MLT share/profiles ==="
+          if [ ! -d "$PREFIX/share/mlt/profiles" ]; then
+            echo "❌ share/mlt/profiles tidak ditemukan!"
+            exit 1
+          fi
+          ls "$PREFIX/share/mlt/"
 
-          $env:MLT_REPOSITORY    = "$env:MLT_HOME\lib\mlt"
-          $env:MLT_DATA          = "$env:MLT_HOME\share\mlt"
-          $env:MLT_PROFILES_PATH = "$env:MLT_HOME\share\mlt\profiles"
-
-          $env:PATH = "$env:MLT_HOME\bin;$env:MLT_HOME;$env:PATH"
-
-          Set-Location $env:MLT_HOME
-
-          echo "" | & "$env:MLT_HOME\melt.exe" $args
-          EOF
+          echo "=== run_melt.ps1 dari build script ==="
+          ls -lh "$PREFIX/run_melt.ps1" || { echo "❌ run_melt.ps1 tidak ditemukan di \$PREFIX!"; exit 1; }
 
       # ─────────────────────────────────────────────
       # 10. Package
-      # FIX: nama DLL & folder disesuaikan dengan MLT v6:
-      #   - libmlt-6.dll   (bukan libmlt-7.dll)
-      #   - libmlt++-3.dll (bukan libmlt++-7.dll -- mlt++ punya soname
-      #                      sendiri, versi 3, terpisah dari versi major MLT)
-      #   - lib/mlt        (bukan lib/mlt-7)
-      #   - share/mlt      (bukan share/mlt-7)
+      # FIX UTAMA:
+      #   1. Modul DLL di-copy dari $PREFIX/lib/mlt (lokasi asli hasil
+      #      install), BUKAN dari $PREFIX/bin (yang cuma berisi 2 file
+      #      core: libmlt-6.dll & libmlt++-3.dll, modul lain TIDAK ada
+      #      di situ -- ini bug lama yang bikin lib/mlt kosong di zip).
+      #   2. run_melt.ps1 di-copy dari $PREFIX/run_melt.ps1 (versi robust
+      #      hasil build-all-ubuntu.sh), BUKAN generate ulang versi basic
+      #      terpisah di workflow yang akhirnya menimpa versi bagus.
       # ─────────────────────────────────────────────
       - name: Package
         run: |
@@ -191,10 +185,8 @@ jobs:
           OUT="release-output"
           ZIP="mlt-windows.zip"
 
-          # 💥 CLEAN GLOBAL (FIX: hapus zip dari cache / run sebelumnya)
           find "$HOME/tools" -type f -iname "*.zip" -delete || true
 
-          # 🧹 CLEAN TOTAL (WAJIB)
           rm -rf "$OUT"
           rm -f "$ZIP"
 
@@ -205,40 +197,61 @@ jobs:
           cp "$PREFIX/bin/libmlt-6.dll"    "$OUT/"
           cp "$PREFIX/bin/libmlt++-3.dll"  "$OUT/"
 
-          # lib/mlt: MLT module DLLs
-          find "$PREFIX/bin" -name "libmlt*.dll" \
+          # lib/mlt: MLT module DLLs -- FIX: copy dari $PREFIX/lib/mlt,
+          # lokasi asli hasil install, bukan dari $PREFIX/bin.
+          cp "$PREFIX/lib/mlt/"*.dll "$OUT/lib/mlt/"
+
+          MOD_COUNT=$(find "$OUT/lib/mlt" -maxdepth 1 -name "*.dll" | wc -l)
+          echo ">>> Modul yang ke-copy ke package: $MOD_COUNT"
+          if [ "$MOD_COUNT" -eq 0 ]; then
+            echo "❌ Tidak ada modul ke-copy ke \$OUT/lib/mlt! Package dibatalkan."
+            exit 1
+          fi
+
+          # bin: semua DLL dependency lainnya (glib, pango, ffmpeg, dst),
+          # KECUALI 2 core libmlt yang sudah ditaruh di root
+          find "$PREFIX/bin" -maxdepth 1 -name "*.dll" \
             ! -name "libmlt-6.dll" \
             ! -name "libmlt++-3.dll" \
-            -exec cp {} "$OUT/lib/mlt/" \;
-
-          # bin: semua DLL dependency lainnya
-          find "$PREFIX/bin" -name "*.dll" \
-            ! -name "libmlt*.dll" \
             -exec cp {} "$OUT/bin/" \;
 
           # share
-          [ -d "$PREFIX/share/mlt" ] && cp -r "$PREFIX/share/mlt" "$OUT/share/"
+          if [ -d "$PREFIX/share/mlt" ]; then
+            cp -r "$PREFIX/share/mlt" "$OUT/share/"
+          else
+            echo "❌ \$PREFIX/share/mlt tidak ditemukan! Package dibatalkan."
+            exit 1
+          fi
 
-          # run script
-          cp run_melt.ps1 "$OUT/"
+          # run script -- FIX: ambil dari $PREFIX (hasil build-all-ubuntu.sh
+          # yang sudah robust), bukan dari file terpisah di workspace root.
+          if [ -f "$PREFIX/run_melt.ps1" ]; then
+            cp "$PREFIX/run_melt.ps1" "$OUT/"
+          else
+            echo "❌ \$PREFIX/run_melt.ps1 tidak ditemukan! Cek generate_run_melt_script() di build-all-ubuntu.sh."
+            exit 1
+          fi
 
-          # 🔒 EXTRA SAFETY: jangan ada zip di dalam OUT
           find "$OUT" -type f -iname "*.zip" -delete
 
           echo "=== Struktur output ==="
           tree "$OUT" -L 3 || true
 
-          echo "=== DEBUG: cek zip sebelum packing ==="
-          find "$OUT" -type f | grep -i zip || echo "NO ZIP FOUND"
-
-          # 📦 ZIP TANPA NESTING + BLOCK ZIP FILE
           (
             cd "$OUT"
             zip -r "../$ZIP" . -x "*.zip"
           )
 
           echo "=== Isi ZIP ==="
-          unzip -l "$ZIP" | head -n 30
+          unzip -l "$ZIP"
+
+          echo "=== Sanity check: pastikan lib/mlt/*.dll ada di dalam ZIP ==="
+          ZIP_MOD_COUNT=$(unzip -l "$ZIP" | grep -c "lib/mlt/.*\.dll")
+          echo "Modul di dalam ZIP: $ZIP_MOD_COUNT"
+          if [ "$ZIP_MOD_COUNT" -eq 0 ]; then
+            echo "❌ ZIP tidak berisi modul apapun di lib/mlt/!"
+            exit 1
+          fi
 
           ls -lh "$ZIP"
 
