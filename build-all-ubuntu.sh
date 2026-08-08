@@ -546,6 +546,174 @@ build_dlfcn() {
   echo "[OK] dlfcn-win32"
 }
 
+# ─── 19b. fnmatch shim ───────────────────────────────────────────────────────
+# FIX: fnmatch.h adalah header POSIX yang TIDAK disediakan oleh mingw-w64 di
+# Ubuntu (dikonfirmasi juga di issue resmi MSYS2 #855 -- ini bukan bug khusus
+# kita, memang mingw-w64 tidak menyertakannya karena bukan bagian Windows API).
+# MLT's producer_loader.c pakai fnmatch() untuk cocokkan pola nama file loader.
+# Alpine kamu kemungkinan lolos karena paket mingw-w64-nya beda (bukan berarti
+# tidak butuh fnmatch, mungkin toolchain Alpine kebetulan menyediakan header
+# serupa via paket lain). Solusi paling robust & tidak bergantung jaringan
+# eksternal: bikin implementasi fnmatch minimal sendiri (public-domain-style,
+# cukup untuk pola wildcard * ? [...] dasar yang dipakai MLT), compile jadi
+# static lib kecil, taruh di $PREFIX/include & $PREFIX/lib supaya otomatis
+# kepakai saat build MLT (CFLAGS/LDFLAGS global sudah include path itu).
+build_fnmatch_shim() {
+  echo ">>> Building fnmatch shim (mingw-w64 tidak sediakan fnmatch.h)..."
+
+  if [ -f "$PREFIX/include/fnmatch.h" ] && [ -f "$PREFIX/lib/libfnmatchcompat.a" ]; then
+    echo "  [skip] fnmatch shim sudah ada"
+    return 0
+  fi
+
+  mkdir -p "$SRC/fnmatch-shim"
+  cd "$SRC/fnmatch-shim"
+
+  cat > fnmatch.h << 'HDREOF'
+#ifndef FNMATCH_SHIM_H
+#define FNMATCH_SHIM_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define FNM_NOMATCH   1
+#define FNM_NOESCAPE  0x01
+#define FNM_PATHNAME  0x02
+#define FNM_PERIOD    0x04
+#define FNM_CASEFOLD  0x08
+
+int fnmatch(const char *pattern, const char *string, int flags);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* FNMATCH_SHIM_H */
+HDREOF
+
+  cat > fnmatch.c << 'SRCEOF'
+/* Minimal fnmatch() implementation (public-domain style) for mingw-w64,
+ * which does not ship the POSIX fnmatch.h/fnmatch(). Supports the basic
+ * wildcard syntax: '*', '?', and '[...]' character classes, plus the
+ * common FNM_NOESCAPE / FNM_PATHNAME / FNM_PERIOD / FNM_CASEFOLD flags.
+ * Not a full POSIX-conformant implementation, but sufficient for simple
+ * filename pattern matching use-cases like MLT's producer_loader.c.
+ */
+#include "fnmatch.h"
+#include <ctype.h>
+#include <string.h>
+
+static int do_match(const char *pat, const char *str, int flags)
+{
+  int fold = (flags & FNM_CASEFOLD) != 0;
+  int noesc = (flags & FNM_NOESCAPE) != 0;
+
+  while (*pat) {
+    char pc = *pat;
+
+    if (pc == '*') {
+      /* collapse consecutive '*' */
+      while (*pat == '*')
+        pat++;
+      if (!*pat)
+        return 0; /* trailing '*' matches everything remaining */
+      while (*str) {
+        if (do_match(pat, str, flags) == 0)
+          return 0;
+        str++;
+      }
+      return do_match(pat, str, flags);
+    } else if (pc == '?') {
+      if (!*str)
+        return FNM_NOMATCH;
+      pat++;
+      str++;
+    } else if (pc == '[' ) {
+      const char *p = pat + 1;
+      int negate = 0;
+      int matched = 0;
+      char sc = *str;
+
+      if (!sc)
+        return FNM_NOMATCH;
+      if (fold)
+        sc = (char)tolower((unsigned char)sc);
+
+      if (*p == '!' || *p == '^') {
+        negate = 1;
+        p++;
+      }
+      while (*p && *p != ']') {
+        char lo = *p++;
+        char hi = lo;
+        if (fold)
+          lo = (char)tolower((unsigned char)lo);
+        if (*p == '-' && p[1] && p[1] != ']') {
+          hi = p[1];
+          if (fold)
+            hi = (char)tolower((unsigned char)hi);
+          p += 2;
+        } else {
+          hi = lo;
+        }
+        if (sc >= lo && sc <= hi)
+          matched = 1;
+      }
+      if (*p == ']')
+        p++;
+      if (matched == negate)
+        return FNM_NOMATCH;
+      pat = p;
+      str++;
+    } else if (pc == '\\' && !noesc) {
+      pat++;
+      if (!*pat)
+        return FNM_NOMATCH;
+      if (!*str)
+        return FNM_NOMATCH;
+      if (*pat != *str)
+        return FNM_NOMATCH;
+      pat++;
+      str++;
+    } else {
+      char a = pc;
+      char b = *str;
+      if (!b)
+        return FNM_NOMATCH;
+      if (fold) {
+        a = (char)tolower((unsigned char)a);
+        b = (char)tolower((unsigned char)b);
+      }
+      if (a != b)
+        return FNM_NOMATCH;
+      pat++;
+      str++;
+    }
+  }
+
+  return (*str == '\0') ? 0 : FNM_NOMATCH;
+}
+
+int fnmatch(const char *pattern, const char *string, int flags)
+{
+  if (!pattern || !string)
+    return FNM_NOMATCH;
+  return do_match(pattern, string, flags);
+}
+SRCEOF
+
+  $CROSS-gcc -c -O2 -o fnmatch.o fnmatch.c
+  $CROSS-ar rcs libfnmatchcompat.a fnmatch.o
+
+  mkdir -p "$PREFIX/include" "$PREFIX/lib"
+  cp fnmatch.h "$PREFIX/include/fnmatch.h"
+  cp libfnmatchcompat.a "$PREFIX/lib/libfnmatchcompat.a"
+
+  cd "$SRC"
+  echo "[OK] fnmatch shim: $PREFIX/include/fnmatch.h + $PREFIX/lib/libfnmatchcompat.a"
+}
+
 # ─── 20. MLT ────────────────────────────────────────────────────────────────
 # FIX: PIN ke v6.26.1 (rilis terakhir major version 6, sama seperti build
 # Alpine kamu yang sudah terbukti jalan). Sengaja TIDAK pakai v7 karena
@@ -599,8 +767,8 @@ build_mlt() {
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
     -DCMAKE_C_FLAGS="-I$PREFIX/include -pthread" \
     -DCMAKE_CXX_FLAGS="-I$PREFIX/include -pthread" \
-    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread" \
+    -DCMAKE_EXE_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread -lfnmatchcompat" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-L$PREFIX/lib -lwinpthread -lfnmatchcompat" \
     -DCMAKE_THREAD_LIBS_INIT="-lwinpthread" \
     -DCMAKE_HAVE_THREADS_LIBRARY=ON \
     -DCMAKE_USE_WIN32_THREADS_INIT=OFF \
@@ -757,6 +925,7 @@ build_sdl2
 build_libexif
 build_libebur128
 build_dlfcn
+build_fnmatch_shim
 build_mlt
 generate_run_melt_script
 
