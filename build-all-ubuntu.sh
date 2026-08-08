@@ -439,10 +439,16 @@ build_rubberband() {
 build_x264() {
   echo ">>> Building x264..."
   cd "$SRC"
+  # FIX: code.videolan.org (GitLab VideoLAN) sering unreachable dari GitHub
+  # Actions (exit code 4 = network failure di wget, bukan gangguan sesaat).
+  # Ganti ke mirror/x264 di GitHub yang jauh lebih stabil untuk CI.
   download_if_missing \
-    https://code.videolan.org/videolan/x264/-/archive/master/x264-master.tar.gz \
+    https://github.com/mirror/x264/archive/refs/heads/stable.tar.gz \
     x264-master.tar.gz
-  [ -d x264-master ] || tar -xzf x264-master.tar.gz
+  if [ ! -d x264-master ]; then
+    tar -xzf x264-master.tar.gz
+    mv x264-stable x264-master
+  fi
 
   if [ -f "$SRC/x264-master/.build_done" ]; then
     echo "  [skip] x264"
