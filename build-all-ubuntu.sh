@@ -28,7 +28,16 @@ download_if_missing() {
   local url="$1"
   local filename="$2"
   if [ ! -f "$SRC/$filename" ]; then
-    wget -q "$url" -O "$SRC/$filename"
+    # FIX: retry + timeout supaya gangguan jaringan sesaat (exit code 4 dari
+    # wget = network failure) tidak langsung mematikan seluruh build.
+    # --tries=5: coba 5x sebelum benar-benar menyerah.
+    # --timeout=30: tiap percobaan max 30 detik nunggu sebelum dianggap gagal.
+    # --waitretry=5: jeda 5 detik antar percobaan (exponential-ish backoff).
+    if ! wget -q --tries=5 --timeout=30 --waitretry=5 "$url" -O "$SRC/$filename"; then
+      echo "  [ERROR] Gagal download $filename dari $url setelah beberapa percobaan"
+      rm -f "$SRC/$filename"   # jangan sisakan file partial/corrupt
+      exit 1
+    fi
   else
     echo "  [skip download] $filename"
   fi
