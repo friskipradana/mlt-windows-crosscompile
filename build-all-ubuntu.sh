@@ -584,6 +584,7 @@ build_mlt() {
     -DMOD_SWIG=OFF \
     -DMOD_DECKLINK=OFF \
     -DMOD_OPENFX=OFF \
+    -DMOD_RNNOISE=OFF \
     -DENABLE_CLANG_FORMAT=OFF
 
   echo ">>> BUILD"
