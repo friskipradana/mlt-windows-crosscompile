@@ -292,7 +292,7 @@ build_freetype() {
   echo ">>> Building freetype..."
   cd "$SRC"
   download_if_missing \
-    https://download.savannah.gnu.org/releases/freetype/freetype-2.13.2.tar.gz \
+    https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-2.tar.gz \
     freetype-2.13.2.tar.gz
   [ -d freetype-2.13.2 ] || tar -xzf freetype-2.13.2.tar.gz
   # Disable harfbuzz dulu, akan di-rebuild setelah harfbuzz selesai (opsional)
