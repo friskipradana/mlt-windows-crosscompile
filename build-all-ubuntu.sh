@@ -901,7 +901,25 @@ build_mlt() {
     -DENABLE_CLANG_FORMAT=OFF
 
   echo ">>> BUILD"
-  make -j$JOBS
+  # FIX: parallel build (-j$JOBS) bisa "menelan" pesan error asli karena
+  # output beberapa target interleaved -- begitu salah satu gagal, make
+  # langsung exit dengan "Error 2" tapi baris error compiler/linker yang
+  # sebenarnya bisa ketutup/ketimpa output target lain yang masih jalan
+  # bareng, apalagi kalau GH Actions log-nya kepotong. Simpan full log ke
+  # file, dan kalau parallel build gagal, retry SERIAL (-j1 -k) supaya
+  # error sebenarnya kelihatan jelas satu-satu tanpa noise.
+  BUILD_LOG="$SRC/mlt-win/build/build.log"
+  if ! make -j$JOBS 2>&1 | tee "$BUILD_LOG"; then
+    echo ""
+    echo "❌ Parallel build gagal. Retry SERIAL (-j1) supaya error asli kelihatan jelas..."
+    echo ""
+    make -j1 -k 2>&1 | tee -a "$BUILD_LOG" || true
+    echo ""
+    echo "=== RINGKASAN ERROR (grep dari $BUILD_LOG) ==="
+    grep -iE "error:|undefined reference|fatal error|No such file|cannot find" "$BUILD_LOG" | sort -u || echo "(tidak ada pola error yang kecocok, cek $BUILD_LOG manual)"
+    echo "==============================================="
+    exit 1
+  fi
 
   echo ">>> DEBUG: cari melt & dll"
   find . -type f | grep -E "melt.exe|mlt.*\.dll" || true
