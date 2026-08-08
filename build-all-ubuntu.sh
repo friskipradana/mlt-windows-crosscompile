@@ -1,6 +1,10 @@
 #!/bin/bash
 # build-all-ubuntu.sh - Cross compile MLT for Windows from Ubuntu (GitHub Actions)
 # Merged & fixed from working Alpine WSL version
+# FIX (latest): generate zlib.pc MANUAL setelah build zlib, supaya meson
+# (baik native maupun cross/host) SELALU nemu zlib lewat pkg-config dan
+# TIDAK PERNAH trigger fallback download dari zlib.net/fossils (yang
+# checksum-nya sering mismatch karena upstream fossil archive tidak stabil).
 # Usage: ./build-all-ubuntu.sh
 
 set -e
@@ -199,6 +203,84 @@ meson_build() {
   cd "$SRC"
 }
 
+# ─── zlib.pc generator (FIX UTAMA) ──────────────────────────────────────────
+# Jangan andalkan CMake/GNUInstallDirs untuk generate zlib.pc secara otomatis
+# -- perilakunya bisa beda tiap versi/platform dan kadang tidak ke-install
+# sama sekali saat cross-compiling ke Windows. Generate manual supaya:
+#   1. Meson (native ATAU cross/host) selalu nemu zlib lewat pkg-config
+#   2. Tidak pernah ada jalur ke fallback download zlib.net/fossils
+#      (fossil archive checksum-nya dikenal sering berubah/mismatch)
+generate_zlib_pc() {
+  echo ">>> Generating zlib.pc manually..."
+
+  # Cari file libz yang benar-benar ke-install. Nama bisa beda-beda
+  # tergantung platform target CMake untuk Windows (import lib .dll.a
+  # untuk shared, atau .a untuk static).
+  local LIBZ_FILE=""
+  for cand in "$PREFIX/lib/libz.dll.a" "$PREFIX/lib/libzlib.dll.a" \
+              "$PREFIX/lib/libz.a" "$PREFIX/lib/libzlibstatic.a" \
+              "$PREFIX/bin/libz.dll.a"; do
+    if [ -f "$cand" ]; then
+      LIBZ_FILE="$cand"
+      break
+    fi
+  done
+
+  if [ -z "$LIBZ_FILE" ]; then
+    echo "  [ERROR] Tidak ada file libz*.a / libzlib*.a di $PREFIX/lib -- cek hasil install zlib!"
+    find "$PREFIX" -iname "*libz*" 2>/dev/null
+    exit 1
+  fi
+
+  # Ekstrak nama link (-lz atau -lzlib dst) dari nama file
+  local LIBZ_NAME
+  LIBZ_NAME=$(basename "$LIBZ_FILE")
+  LIBZ_NAME="${LIBZ_NAME#lib}"
+  LIBZ_NAME="${LIBZ_NAME%.dll.a}"
+  LIBZ_NAME="${LIBZ_NAME%.a}"
+
+  if [ ! -f "$PREFIX/include/zlib.h" ]; then
+    echo "  [ERROR] zlib.h tidak ditemukan di $PREFIX/include -- cek hasil install zlib!"
+    exit 1
+  fi
+
+  # Ambil versi asli dari header zlib.h supaya .pc tidak hardcode versi salah
+  local ZVER
+  ZVER=$(grep -oP '(?<=#define ZLIB_VERSION ")[^"]+' "$PREFIX/include/zlib.h" 2>/dev/null || echo "1.3.1")
+
+  mkdir -p "$PREFIX/lib/pkgconfig"
+  cat > "$PREFIX/lib/pkgconfig/zlib.pc" << EOF
+prefix=$PREFIX
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+sharedlibdir=\${libdir}
+includedir=\${prefix}/include
+
+Name: zlib
+Description: zlib compression library
+Version: $ZVER
+
+Requires:
+Libs: -L\${libdir} -L\${sharedlibdir} -l$LIBZ_NAME
+Cflags: -I\${includedir}
+EOF
+
+  echo "  [OK] zlib.pc generated -> $PREFIX/lib/pkgconfig/zlib.pc (lib=-l$LIBZ_NAME, ver=$ZVER)"
+
+  # Verifikasi langsung supaya build gagal cepat & jelas kalau masih salah,
+  # daripada baru ketahuan pas glib configure jauh di bawah.
+  if PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" pkg-config --exists zlib; then
+    local FOUND_VER
+    FOUND_VER=$(PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" pkg-config --modversion zlib)
+    echo "  [VERIFIED] pkg-config found zlib $FOUND_VER"
+  else
+    echo "  [ERROR] pkg-config MASIH tidak nemu zlib setelah generate zlib.pc manual!"
+    echo "  Debug isi file:"
+    cat "$PREFIX/lib/pkgconfig/zlib.pc"
+    exit 1
+  fi
+}
+
 # ─── 1. zlib ────────────────────────────────────────────────────────────────
 build_zlib() {
   echo ">>> Building zlib..."
@@ -207,7 +289,14 @@ build_zlib() {
     https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz \
     zlib-1.3.1.tar.gz
   [ -d zlib-1.3.1 ] || tar -xzf zlib-1.3.1.tar.gz
-  cmake_build zlib-1.3.1
+  cmake_build zlib-1.3.1 -DCMAKE_INSTALL_LIBDIR=lib
+
+  # FIX: selalu generate ulang zlib.pc manual, terlepas dari apapun yang
+  # CMake hasilkan (atau tidak hasilkan). Ini idempotent & murah, jadi aman
+  # dijalankan tiap kali script ini di-run, termasuk saat cmake_build di-skip
+  # karena .build_done sudah ada dari cache run sebelumnya.
+  generate_zlib_pc
+
   echo "[OK] zlib"
 }
 
@@ -281,10 +370,26 @@ build_glib() {
     https://download.gnome.org/sources/glib/2.78/glib-2.78.0.tar.xz \
     glib-2.78.0.tar.xz
   [ -d glib-2.78.0 ] || tar -xf glib-2.78.0.tar.xz
+
+  # Sanity check terakhir sebelum masuk meson: pastikan zlib.pc kelihatan
+  # persis dengan cara meson akan melihatnya (lewat pkg_config_libdir di
+  # cross file), supaya kalau gagal, gagalnya di sini dengan pesan jelas --
+  # bukan di tengah-tengah meson setup glib dengan pesan hash mismatch.
+  echo ">>> Pre-flight check: zlib.pc harus terlihat sebelum build glib"
+  if ! PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" pkg-config --exists zlib; then
+    echo "  [ERROR] zlib.pc tidak terdeteksi! Jalankan ulang build_zlib()."
+    exit 1
+  fi
+  echo "  [OK] zlib terdeteksi: $(PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" pkg-config --modversion zlib)"
+
   # FIX: tidak ada opsi -Dpcre2 di glib 2.74+ (dihapus, jadi mandatory)
   # FIX: tidak ada opsi -Dglib_assert / -Dglib_checks di versi ini
+  # FIX: --wrap-mode=nodownload -- kalau zlib (atau dependency lain) somehow
+  # tetap tidak ketemu, meson akan GAGAL LANGSUNG dengan pesan jelas
+  # "Dependency zlib not found", bukan diam-diam nyoba download source
+  # fallback dari zlib.net/fossils dan mati karena hash mismatch di sana.
   meson_build glib-2.78.0 \
-    --wrap-mode=default \
+    --wrap-mode=nodownload \
     -Dtests=false \
     -Dinstalled_tests=false \
     -Dlibmount=disabled \
