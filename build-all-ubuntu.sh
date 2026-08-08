@@ -532,11 +532,13 @@ build_dlfcn() {
 }
 
 # ─── 20. MLT ────────────────────────────────────────────────────────────────
-# FIX: clone di-pin ke tag tertentu supaya build reproducible (tidak lagi
-# "moving target" mengikuti branch master yang bisa naik major version
-# kapan saja, seperti kejadian v6 -> v7 yang mengubah struktur folder
-# module & data jadi versioned: lib/mlt-7, share/mlt-7, dst).
-MLT_TAG="v7.36.1"
+# FIX: PIN ke v6.26.1 (rilis terakhir major version 6, sama seperti build
+# Alpine kamu yang sudah terbukti jalan). Sengaja TIDAK pakai v7 karena
+# struktur folder module/data v7 di-versioned (lib/mlt-7, share/mlt-7) dan
+# lokasi build-time berbeda dengan lokasi install-time, yang bikin fallback
+# copy jadi tidak reliable untuk cross-compile Windows. v6 pakai folder
+# polos (lib/mlt, share/mlt) tanpa versi -- jauh lebih sederhana & terbukti.
+MLT_TAG="v6.26.1"
 
 build_mlt() {
   echo ">>> Building MLT ($MLT_TAG)..."
@@ -590,7 +592,6 @@ build_mlt() {
     -DMOD_SWIG=OFF \
     -DMOD_DECKLINK=OFF \
     -DMOD_OPENFX=OFF \
-    -DMOD_RNNOISE=OFF \
     -DENABLE_CLANG_FORMAT=OFF
 
   echo ">>> BUILD"
@@ -604,6 +605,7 @@ build_mlt() {
 
   # =========================
   # FALLBACK FINAL FIX
+  # v6 pakai folder POLOS tanpa versi: lib/mlt, share/mlt
   # =========================
 
   echo ">>> FALLBACK: melt.exe"
@@ -613,99 +615,48 @@ build_mlt() {
     cp -f "$MELT_PATH" "$PREFIX/bin/"
     echo "  [OK] melt.exe copied"
   else
-    echo "  [WARN] melt.exe tidak ditemukan di build/out"
+    echo "  [WARN] melt.exe tidak ditemukan di build/out, cek hasil make install..."
+    MELT_PATH=$(find "$PREFIX/bin" -name "melt.exe" 2>/dev/null | head -1)
   fi
 
   echo ">>> FALLBACK: libmlt DLL"
-  find "$SRC/mlt-win/build/out" -maxdepth 3 -name "libmlt*.dll" | while read dll; do
+  find "$SRC/mlt-win/build/out" -maxdepth 3 -name "libmlt*.dll" 2>/dev/null | while read dll; do
     cp "$dll" "$PREFIX/bin/"
     echo "  [copied] $(basename "$dll")"
   done
 
-  # FIX: MLT v7+ menaruh module & data di folder BER-VERSI, misal
-  # lib/mlt-7 dan share/mlt-7 (bukan lib/mlt & share/mlt polos seperti v6).
-  # Deteksi otomatis nama folder yang sebenarnya dipakai, supaya skrip
-  # ini tetap benar walau MLT naik versi lagi di masa depan.
-  #
-  # PENTING: "make install" (dijalankan di atas) SEHARUSNYA sudah menulis
-  # lib/mlt-X dan share/mlt-X langsung ke $PREFIX (karena
-  # -DCMAKE_INSTALL_PREFIX="$PREFIX"). Folder $SRC/mlt-win/build/out
-  # hanyalah staging folder internal MLT untuk melt.exe & modul saat build
-  # berjalan -- TIDAK SELALU berisi 'share/profiles'. Jadi cek $PREFIX
-  # dulu (hasil install asli); baru fallback cari di build/out; baru
-  # fallback terakhir cari di seluruh build tree.
-
-  echo ">>> DEBUG: isi \$PREFIX/lib dan \$PREFIX/share setelah make install"
-  find "$PREFIX/lib" -maxdepth 1 -type d 2>/dev/null || true
-  find "$PREFIX/share" -maxdepth 1 -type d 2>/dev/null || true
-
-  echo ">>> modules: cek hasil 'make install' dulu"
-  LIB_MLT_SRC=$(find "$PREFIX/lib" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
-  if [ -z "$LIB_MLT_SRC" ]; then
-    echo "  [info] tidak ada di \$PREFIX/lib, coba build/out..."
-    LIB_MLT_SRC=$(find "$SRC/mlt-win/build/out/lib" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
+  echo ">>> FALLBACK: modules"
+  mkdir -p "$PREFIX/lib/mlt"
+  MODULES_SRC=$(find "$SRC/mlt-win/build" -maxdepth 4 -type d -path "*/lib/mlt" 2>/dev/null | head -1)
+  if [ -z "$MODULES_SRC" ]; then
+    MODULES_SRC="$SRC/mlt-win/build/out/lib/mlt"
   fi
-  if [ -z "$LIB_MLT_SRC" ]; then
-    echo "  [info] tidak ada di build/out, cari di seluruh build tree..."
-    LIB_MLT_SRC=$(find "$SRC/mlt-win/build" -type d -iname "mlt-*" 2>/dev/null | grep -v "\.build_done" | head -1)
+  if [ -d "$MODULES_SRC" ]; then
+    find "$MODULES_SRC" -name "*.dll" | while read dll; do
+      cp "$dll" "$PREFIX/lib/mlt/"
+      echo "  [copied] $(basename "$dll")"
+    done
   fi
+  DLL_COUNT=$(find "$PREFIX/lib/mlt" -name "*.dll" 2>/dev/null | wc -l)
+  echo "  [OK] modules: $DLL_COUNT dll di \$PREFIX/lib/mlt"
 
-  if [ -n "$LIB_MLT_SRC" ]; then
-    MLT_MOD_NAME=$(basename "$LIB_MLT_SRC")
-    if [ "$LIB_MLT_SRC" != "$PREFIX/lib/$MLT_MOD_NAME" ]; then
-      mkdir -p "$PREFIX/lib/$MLT_MOD_NAME"
-      find "$LIB_MLT_SRC" -name "*.dll" -exec cp {} "$PREFIX/lib/$MLT_MOD_NAME/" \;
-    fi
-    DLL_COUNT=$(find "$PREFIX/lib/$MLT_MOD_NAME" -name "*.dll" 2>/dev/null | wc -l)
-    echo "  [OK] modules: $LIB_MLT_SRC -> $PREFIX/lib/$MLT_MOD_NAME ($DLL_COUNT dll)"
-  else
-    echo "  [ERROR] folder lib/mlt* tidak ditemukan dimanapun!"
-    echo "  Debug: seluruh isi build tree yang mengandung 'mlt':"
-    find "$SRC/mlt-win/build" -iname "*mlt*" -type d 2>/dev/null | head -30
-    exit 1
-  fi
-
-  echo ">>> share: cari folder 'profiles' di seluruh build tree (build-time output MLT_DATA_OUTPUT_DIRECTORY)"
-  # MLT menulis profiles/presets/modules ke MLT_DATA_OUTPUT_DIRECTORY SAAT BUILD
-  # (bukan cuma saat install), lokasi variabel internal ini bisa berbeda nama
-  # folder dengan hasil final di $PREFIX/share (yang di-versioned saat install).
-  # Jadi cari langsung folder 'profiles' di manapun di build tree, lalu pakai
-  # folder induknya sebagai sumber, dan paksa nama tujuan SAMA dengan nama
-  # folder module (MLT_MOD_NAME, misal "mlt-7") supaya konsisten & sesuai
-  # yang di-expect run_melt.ps1.
+  echo ">>> FALLBACK: share (cari folder 'profiles' langsung, paling reliable)"
+  mkdir -p "$PREFIX/share/mlt"
   PROFILES_DIR=$(find "$SRC/mlt-win/build" -type d -name "profiles" 2>/dev/null | head -1)
-  if [ -z "$PROFILES_DIR" ]; then
-    echo "  [info] tidak ketemu di build/, coba \$PREFIX/share..."
-    PROFILES_DIR=$(find "$PREFIX/share" -type d -name "profiles" 2>/dev/null | head -1)
-  fi
-
   if [ -n "$PROFILES_DIR" ]; then
-    SHARE_MLT_SRC=$(dirname "$PROFILES_DIR")
-    MLT_SHARE_NAME="$MLT_MOD_NAME"   # paksa sama dengan nama folder module (mlt-7)
-    if [ "$SHARE_MLT_SRC" != "$PREFIX/share/$MLT_SHARE_NAME" ]; then
-      mkdir -p "$PREFIX/share/$MLT_SHARE_NAME"
-      cp -r "$SHARE_MLT_SRC/"* "$PREFIX/share/$MLT_SHARE_NAME/" 2>/dev/null || true
-    fi
-    ITEM_COUNT=$(find "$PREFIX/share/$MLT_SHARE_NAME" -mindepth 1 2>/dev/null | wc -l)
-    echo "  [OK] share: $SHARE_MLT_SRC -> $PREFIX/share/$MLT_SHARE_NAME ($ITEM_COUNT items)"
+    SHARE_SRC=$(dirname "$PROFILES_DIR")
+    cp -r "$SHARE_SRC/"* "$PREFIX/share/mlt/" 2>/dev/null || true
+    echo "  [OK] share dari: $SHARE_SRC"
   else
-    echo "  [ERROR] folder 'profiles' tidak ditemukan dimanapun di build tree atau \$PREFIX!"
-    echo "  Debug: struktur $SRC/mlt-win/build/out (2 level):"
-    find "$SRC/mlt-win/build/out" -maxdepth 2 2>/dev/null || echo "    (folder out/ tidak ada)"
-    echo "  Debug: struktur $SRC/mlt-win/build (2 level):"
-    find "$SRC/mlt-win/build" -maxdepth 2 -type d 2>/dev/null || true
-    echo "  Debug: semua folder bernama 'profiles' atau 'presets' di source tree:"
-    find "$SRC/mlt-win" -maxdepth 3 \( -iname "profiles" -o -iname "presets" \) 2>/dev/null || true
-    exit 1
+    echo "  [WARN] folder 'profiles' tidak ditemukan, coba path lama..."
+    if [ -d "$SRC/mlt-win/build/out/share/mlt" ]; then
+      cp -r "$SRC/mlt-win/build/out/share/mlt/"* "$PREFIX/share/mlt/" 2>/dev/null || true
+    fi
   fi
+  ITEM_COUNT=$(find "$PREFIX/share/mlt" -mindepth 1 2>/dev/null | wc -l)
+  echo "  [OK] share: $ITEM_COUNT items di \$PREFIX/share/mlt"
 
-  # Simpan nama folder versioned supaya bisa dipakai skrip lain
-  # (misal run_melt.ps1 generator) tanpa perlu hardcode versi.
-  echo "$MLT_MOD_NAME" > "$PREFIX/.mlt_module_dir"
-  echo "$MLT_SHARE_NAME" > "$PREFIX/.mlt_share_dir"
-
-  # Copy semua runtime DLL dependency (glib, pango, freetype, ffmpeg, dll)
-  # yang ter-install di $PREFIX/lib/*.dll ke bin/, supaya Windows loader
+  # Copy semua runtime DLL dependency ke bin/, biar Windows loader
   # bisa resolve semua dependency saat melt.exe dijalankan.
   echo ">>> Copying all runtime DLLs to bin/"
   find "$PREFIX/lib" -maxdepth 1 -name "*.dll" -exec cp {} "$PREFIX/bin/" \;
@@ -722,32 +673,29 @@ build_mlt() {
   fi
 
   echo "✅ melt.exe: $MELT_PATH"
-  echo "✅ module dir: $MLT_MOD_NAME ($(ls "$PREFIX/lib/$MLT_MOD_NAME" 2>/dev/null | wc -l) files)"
-  echo "✅ share dir : $MLT_SHARE_NAME ($(ls "$PREFIX/share/$MLT_SHARE_NAME" 2>/dev/null | wc -l) items)"
+  echo "✅ modules: $(ls $PREFIX/lib/mlt 2>/dev/null | wc -l)"
+  echo "✅ share: $(ls $PREFIX/share/mlt 2>/dev/null | wc -l)"
 
   echo "[OK] MLT BUILT SUCCESS"
 }
 
-# ─── generate run_melt.ps1 (otomatis pakai nama folder versioned yang benar) ─
+# ─── generate run_melt.ps1 (v6, folder polos tanpa versi) ────────────────────
 generate_run_melt_script() {
   echo ">>> Generating run_melt.ps1..."
-  MLT_MOD_NAME=$(cat "$PREFIX/.mlt_module_dir" 2>/dev/null || echo "mlt")
-  MLT_SHARE_NAME=$(cat "$PREFIX/.mlt_share_dir" 2>/dev/null || echo "mlt")
-
-  cat > "$PREFIX/run_melt.ps1" << EOF
-# run_melt.ps1 (auto-generated by build-all-ubuntu.sh)
+  cat > "$PREFIX/run_melt.ps1" << 'EOF'
+# run_melt.ps1 (auto-generated by build-all-ubuntu.sh, MLT v6)
 # PowerShell script untuk menjalankan melt.exe dengan environment MLT yang benar
-\$env:MLT_HOME = \$PSScriptRoot
-\$env:MLT_REPOSITORY = "\$env:MLT_HOME\\lib\\$MLT_MOD_NAME"
-\$env:MLT_DATA = "\$env:MLT_HOME\\share\\$MLT_SHARE_NAME"
-\$env:MLT_PROFILES_PATH = "\$env:MLT_HOME\\share\\$MLT_SHARE_NAME\\profiles"
-\$env:PATH = "\$env:MLT_HOME\\bin;\$env:MLT_HOME;\$env:PATH"
-Set-Location \$env:MLT_HOME
-echo "" | & "\$env:MLT_HOME\\melt.exe" \$args
+$env:MLT_HOME = $PSScriptRoot
+$env:MLT_REPOSITORY = "$env:MLT_HOME\lib\mlt"
+$env:MLT_DATA = "$env:MLT_HOME\share\mlt"
+$env:MLT_PROFILES_PATH = "$env:MLT_HOME\share\mlt\profiles"
+$env:PATH = "$env:MLT_HOME\bin;$env:MLT_HOME;$env:PATH"
+Set-Location $env:MLT_HOME
+echo "" | & "$env:MLT_HOME\melt.exe" $args
 EOF
-
-  echo "[OK] run_melt.ps1 generated (module=$MLT_MOD_NAME, share=$MLT_SHARE_NAME)"
+  echo "[OK] run_melt.ps1 generated (v6, folder polos: mlt)"
 }
+
 
 # ─── MAIN ───────────────────────────────────────────────────────────────────
 echo "================================================"
