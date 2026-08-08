@@ -898,18 +898,28 @@ build_mlt() {
     -DMLT_BUILD_TESTS=OFF \
     -DMLT_BUILD_EXAMPLES=OFF \
     -DMOD_QT6=OFF \
+    -DMOD_QT=OFF \
     -DMOD_MOVIT=OFF \
     -DMOD_FREI0R=OFF \
     -DMOD_GDK=OFF \
+    -DMOD_GTK2=OFF \
     -DMOD_JACKRACK=OFF \
     -DMOD_SOX=OFF \
     -DMOD_VIDSTAB=OFF \
     -DMOD_VORBIS=OFF \
     -DMOD_RTAUDIO=OFF \
+    -DMOD_SDL=OFF \
+    -DMOD_XINE=OFF \
     -DMOD_SWIG=OFF \
     -DMOD_DECKLINK=OFF \
     -DMOD_OPENFX=OFF \
     -DENABLE_CLANG_FORMAT=OFF
+    # CATATAN: modul yang SENGAJA tetap AKTIF (dependency-nya sudah di-build
+    # script ini): core, avformat (ffmpeg), sdl2, xml (libxml2), resample
+    # (libsamplerate), rubberband, plus, plusgpl, normalize, oldfilm,
+    # kdenlive (kdenlivetitle -- pakai libxml2, no extra dep khusus).
+    # Kalau salah satu dari ini ternyata juga butuh header lain yang belum
+    # ada, tinggal tambahkan -DMOD_<NAMA>=OFF ke list di atas.
 
   echo ">>> BUILD"
   # FIX: parallel build (-j$JOBS) bisa "menelan" pesan error asli karena
