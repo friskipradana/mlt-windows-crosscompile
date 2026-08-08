@@ -910,10 +910,21 @@ build_mlt() {
     -DMOD_RTAUDIO=OFF \
     -DMOD_SDL=OFF \
     -DMOD_XINE=OFF \
+    -DMOD_LUMAS=OFF \
     -DMOD_SWIG=OFF \
     -DMOD_DECKLINK=OFF \
     -DMOD_OPENFX=OFF \
     -DENABLE_CLANG_FORMAT=OFF
+    # FIX: MOD_LUMAS=OFF -- modul lumas sudah digantikan mlt_luma_map API
+    # sejak v6.18.0 dan seharusnya default OFF, tapi kalau ke-enable
+    # (implisit atau lewat cache CMake lama), CMake akan coba GENERATE file
+    # .pgm saat build-time dengan menjalankan tool "luma" hasil compile.
+    # Karena kita CROSS-COMPILE, tool "luma" itu di-compile jadi luma.exe
+    # untuk Windows -- tidak bisa dieksekusi langsung di Linux build host
+    # (makanya errornya "luma: not found", exit 127). Fungsionalitas lama
+    # (%luma01.pgm dst) tetap didukung lewat mlt_luma_map API built-in,
+    # jadi disable modul ini TIDAK menghilangkan fitur transisi luma.
+    #
     # CATATAN: modul yang SENGAJA tetap AKTIF (dependency-nya sudah di-build
     # script ini): core, avformat (ffmpeg), sdl2, xml (libxml2), resample
     # (libsamplerate), rubberband, plus, plusgpl, normalize, oldfilm,
