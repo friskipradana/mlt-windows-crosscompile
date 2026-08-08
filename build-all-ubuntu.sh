@@ -544,8 +544,22 @@ build_mlt() {
   echo ">>> Building MLT ($MLT_TAG)..."
 
   cd "$SRC"
+  # FIX: cache GitHub Actions bisa restore folder mlt-win LAMA dari versi
+  # tag yang berbeda (misal v7 sebelumnya). Cek marker file versi, kalau
+  # tidak cocok dengan MLT_TAG saat ini, hapus & clone ulang -- supaya
+  # tidak salah pakai source code versi lama gara-gara cache hit.
+  if [ -d mlt-win ]; then
+    CACHED_TAG=$(cat mlt-win/.mlt_tag_marker 2>/dev/null || echo "")
+    if [ "$CACHED_TAG" != "$MLT_TAG" ]; then
+      echo "  [info] folder mlt-win ada tapi versi cache ($CACHED_TAG) != target ($MLT_TAG), hapus & clone ulang..."
+      rm -rf mlt-win
+    else
+      echo "  [skip] mlt-win sudah versi $MLT_TAG (dari cache)"
+    fi
+  fi
   if [ ! -d mlt-win ]; then
     git clone --depth=1 --branch "$MLT_TAG" https://github.com/mltframework/mlt.git mlt-win
+    echo "$MLT_TAG" > mlt-win/.mlt_tag_marker
   fi
 
   cd mlt-win

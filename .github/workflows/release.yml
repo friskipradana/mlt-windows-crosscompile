@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build:
@@ -66,6 +66,9 @@ jobs:
       # Kalau hard clean dulu, cache tidak ada gunanya sama sekali.
       # Key pakai hash build script supaya cache otomatis invalid
       # kalau scriptnya berubah.
+      # FIX v2: naikkan versi prefix v1 -> v2 supaya cache lama (dari
+      # build MLT v7 sebelumnya) tidak ke-restore lewat restore-keys
+      # partial match dan mengotori build MLT v6 yang baru.
       # ─────────────────────────────────────────────
       - name: Cache deps
         id: cache-deps
@@ -74,9 +77,9 @@ jobs:
           path: |
             ~/tools/win-deps
             ~/tools/src
-          key: mlt-deps-v1-${{ runner.os }}-${{ hashFiles('build-all-ubuntu.sh') }}
+          key: mlt-deps-v2-${{ runner.os }}-${{ hashFiles('build-all-ubuntu.sh') }}
           restore-keys: |
-            mlt-deps-v1-${{ runner.os }}-
+            mlt-deps-v2-${{ runner.os }}-
 
       # ─────────────────────────────────────────────
       # 5. Init dirs (hanya kalau cache miss)
@@ -134,6 +137,8 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 8. Validate output
+      # FIX: MLT v6 pakai folder POLOS tanpa versi -> lib/mlt, share/mlt
+      # (bukan lib/mlt-7 / share/mlt-7 seperti v7)
       # ─────────────────────────────────────────────
       - name: Validate output
         run: |
@@ -145,12 +150,12 @@ jobs:
           ls "$PREFIX/bin/"*.dll | wc -l
 
           echo "=== MLT modules ==="
-          ls "$PREFIX/lib/mlt-7/" 2>/dev/null || echo "WARNING: lib/mlt-7 tidak ditemukan"
-          ls "$PREFIX/share/mlt-7/" 2>/dev/null || echo "WARNING: share/mlt-7 tidak ditemukan"
-
+          ls "$PREFIX/lib/mlt/" 2>/dev/null || echo "WARNING: lib/mlt tidak ditemukan"
+          ls "$PREFIX/share/mlt/" 2>/dev/null || echo "WARNING: share/mlt tidak ditemukan"
 
       # ─────────────────────────────────────────────
       # 9. Generate run_melt.ps1
+      # FIX: path folder POLOS (mlt, bukan mlt-7) sesuai MLT v6
       # ─────────────────────────────────────────────
       - name: Generate run_melt.ps1
         run: |
@@ -158,9 +163,9 @@ jobs:
           # run_melt.ps1
           $env:MLT_HOME = $PSScriptRoot
 
-          $env:MLT_REPOSITORY    = "$env:MLT_HOME\lib\mlt-7"
-          $env:MLT_DATA          = "$env:MLT_HOME\share\mlt-7"
-          $env:MLT_PROFILES_PATH = "$env:MLT_HOME\share\mlt-7\profiles"
+          $env:MLT_REPOSITORY    = "$env:MLT_HOME\lib\mlt"
+          $env:MLT_DATA          = "$env:MLT_HOME\share\mlt"
+          $env:MLT_PROFILES_PATH = "$env:MLT_HOME\share\mlt\profiles"
 
           $env:PATH = "$env:MLT_HOME\bin;$env:MLT_HOME;$env:PATH"
 
@@ -168,9 +173,15 @@ jobs:
 
           echo "" | & "$env:MLT_HOME\melt.exe" $args
           EOF
-          
-            # ─────────────────────────────────────────────
+
+      # ─────────────────────────────────────────────
       # 10. Package
+      # FIX: nama DLL & folder disesuaikan dengan MLT v6:
+      #   - libmlt-6.dll   (bukan libmlt-7.dll)
+      #   - libmlt++-3.dll (bukan libmlt++-7.dll -- mlt++ punya soname
+      #                      sendiri, versi 3, terpisah dari versi major MLT)
+      #   - lib/mlt        (bukan lib/mlt-7)
+      #   - share/mlt      (bukan share/mlt-7)
       # ─────────────────────────────────────────────
       - name: Package
         run: |
@@ -187,18 +198,18 @@ jobs:
           rm -rf "$OUT"
           rm -f "$ZIP"
 
-          mkdir -p "$OUT/bin" "$OUT/lib/mlt-7" "$OUT/share"
+          mkdir -p "$OUT/bin" "$OUT/lib/mlt" "$OUT/share"
 
-          # Root: melt.exe + libmlt core DLL
+          # Root: melt.exe + libmlt core DLL (v6 naming)
           cp "$PREFIX/bin/melt.exe"        "$OUT/"
-          cp "$PREFIX/bin/libmlt-7.dll"    "$OUT/"
-          cp "$PREFIX/bin/libmlt++-7.dll"  "$OUT/"
+          cp "$PREFIX/bin/libmlt-6.dll"    "$OUT/"
+          cp "$PREFIX/bin/libmlt++-3.dll"  "$OUT/"
 
-          # lib/mlt-7: MLT module DLLs
+          # lib/mlt: MLT module DLLs
           find "$PREFIX/bin" -name "libmlt*.dll" \
-            ! -name "libmlt-7.dll" \
-            ! -name "libmlt++-7.dll" \
-            -exec cp {} "$OUT/lib/mlt-7/" \;
+            ! -name "libmlt-6.dll" \
+            ! -name "libmlt++-3.dll" \
+            -exec cp {} "$OUT/lib/mlt/" \;
 
           # bin: semua DLL dependency lainnya
           find "$PREFIX/bin" -name "*.dll" \
@@ -206,7 +217,7 @@ jobs:
             -exec cp {} "$OUT/bin/" \;
 
           # share
-          [ -d "$PREFIX/share/mlt-7" ] && cp -r "$PREFIX/share/mlt-7" "$OUT/share/"
+          [ -d "$PREFIX/share/mlt" ] && cp -r "$PREFIX/share/mlt" "$OUT/share/"
 
           # run script
           cp run_melt.ps1 "$OUT/"
