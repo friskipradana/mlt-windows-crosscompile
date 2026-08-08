@@ -578,18 +578,29 @@ build_x264() {
 }
 
 # ─── 15. FFmpeg ─────────────────────────────────────────────────────────────
+# FIX: MLT v6.26.1 (dirilis ~2020) menulis src/modules/avformat/factory.c
+# pakai API FFmpeg lama: AVLockOp, av_lockmgr_register, av_register_all,
+# avfilter_register_all, av_iformat_next, av_oformat_next, av_codec_next,
+# avfilter_next. Semua API ini DIHAPUS TOTAL di FFmpeg 5.0+ (sebelumnya
+# cuma deprecated-tapi-jalan di 4.x). FFmpeg 7.1 karena itu gagal compile
+# dengan error "undeclared" / "incomplete type" di avformat module.
+# FIX: pin ke FFmpeg 4.4.5 (rilis LTS-ish terakhir dari seri 4.x yang masih
+# menyediakan API lama tsb secara fungsional) supaya avformat module MLT
+# v6.26.1 bisa compile tanpa perlu patch source MLT sama sekali.
+FFMPEG_VERSION="4.4.5"
+
 build_ffmpeg() {
-  echo ">>> Building FFmpeg..."
+  echo ">>> Building FFmpeg ($FFMPEG_VERSION)..."
   cd "$SRC"
   download_if_missing \
-    https://ffmpeg.org/releases/ffmpeg-7.1.tar.gz \
-    ffmpeg-7.1.tar.gz
-  [ -d ffmpeg-7.1 ] || tar -xzf ffmpeg-7.1.tar.gz
+    "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.gz" \
+    "ffmpeg-$FFMPEG_VERSION.tar.gz"
+  [ -d "ffmpeg-$FFMPEG_VERSION" ] || tar -xzf "ffmpeg-$FFMPEG_VERSION.tar.gz"
 
-  if [ -f "$SRC/ffmpeg-7.1/.build_done" ]; then
+  if [ -f "$SRC/ffmpeg-$FFMPEG_VERSION/.build_done" ]; then
     echo "  [skip] FFmpeg"
   else
-    cd "$SRC/ffmpeg-7.1"
+    cd "$SRC/ffmpeg-$FFMPEG_VERSION"
     PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" \
     PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" \
     ./configure \
