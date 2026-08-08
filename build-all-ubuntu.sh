@@ -294,11 +294,17 @@ build_freetype() {
   download_if_missing \
     https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-2.tar.gz \
     freetype-2.13.2.tar.gz
-  [ -d freetype-2.13.2 ] || tar -xzf freetype-2.13.2.tar.gz
-  # Disable harfbuzz dulu, akan di-rebuild setelah harfbuzz selesai (opsional)
+  if [ ! -f freetype-2.13.2/CMakeLists.txt ]; then
+    rm -rf freetype-2.13.2
+    tar -xzf freetype-2.13.2.tar.gz
+    mv freetype-VER-2-13-2 freetype-2.13.2
+  fi
   cmake_build freetype-2.13.2 \
+    -DFT_DISABLE_ZLIB=ON \
+    -DFT_DISABLE_BZIP2=ON \
+    -DFT_DISABLE_PNG=ON \
     -DFT_DISABLE_HARFBUZZ=ON \
-    -DFT_DISABLE_BZIP2=ON
+    -DFT_DISABLE_BROTLI=ON
   echo "[OK] freetype"
 }
 
