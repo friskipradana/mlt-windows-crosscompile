@@ -17,9 +17,6 @@ export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR="$PREFIX"
 
 # Propagate flags ke semua build
-# export CFLAGS="-I$PREFIX/include"
-# export CXXFLAGS="-I$PREFIX/include"
-# export LDFLAGS="-L$PREFIX/lib"
 export CFLAGS="-I$PREFIX/include -pthread"
 export CXXFLAGS="-I$PREFIX/include -pthread"
 export LDFLAGS="-L$PREFIX/lib -lwinpthread"
@@ -277,7 +274,6 @@ build_glib() {
   [ -d glib-2.78.0 ] || tar -xf glib-2.78.0.tar.xz
   # FIX: tidak ada opsi -Dpcre2 di glib 2.74+ (dihapus, jadi mandatory)
   # FIX: tidak ada opsi -Dglib_assert / -Dglib_checks di versi ini
-  # Sama persis dengan Alpine yang bekerja
   meson_build glib-2.78.0 \
     --wrap-mode=default \
     -Dtests=false \
@@ -288,6 +284,8 @@ build_glib() {
 }
 
 # ─── 7. freetype ────────────────────────────────────────────────────────────
+# FIX: download.savannah.gnu.org sering gagal (exit 8) di GitHub Actions,
+# ganti ke mirror GitHub resmi freetype/freetype yang lebih stabil.
 build_freetype() {
   echo ">>> Building freetype..."
   cd "$SRC"
@@ -534,11 +532,19 @@ build_dlfcn() {
 }
 
 # ─── 20. MLT ────────────────────────────────────────────────────────────────
+# FIX: clone di-pin ke tag tertentu supaya build reproducible (tidak lagi
+# "moving target" mengikuti branch master yang bisa naik major version
+# kapan saja, seperti kejadian v6 -> v7 yang mengubah struktur folder
+# module & data jadi versioned: lib/mlt-7, share/mlt-7, dst).
+MLT_TAG="v7.36.1"
+
 build_mlt() {
-  echo ">>> Building MLT..."
+  echo ">>> Building MLT ($MLT_TAG)..."
 
   cd "$SRC"
-  [ -d mlt-win ] || git clone --depth=1 https://github.com/mltframework/mlt.git mlt-win
+  if [ ! -d mlt-win ]; then
+    git clone --depth=1 --branch "$MLT_TAG" https://github.com/mltframework/mlt.git mlt-win
+  fi
 
   cd mlt-win
   rm -rf build
@@ -606,26 +612,60 @@ build_mlt() {
     mkdir -p "$PREFIX/bin"
     cp -f "$MELT_PATH" "$PREFIX/bin/"
     echo "  [OK] melt.exe copied"
+  else
+    echo "  [WARN] melt.exe tidak ditemukan di build/out"
   fi
 
   echo ">>> FALLBACK: libmlt DLL"
-  find "$SRC/mlt-win/build/out" -name "libmlt*.dll" | while read dll; do
+  find "$SRC/mlt-win/build/out" -maxdepth 3 -name "libmlt*.dll" | while read dll; do
     cp "$dll" "$PREFIX/bin/"
-    echo "  [copied] $(basename $dll)"
+    echo "  [copied] $(basename "$dll")"
   done
 
-  echo ">>> FALLBACK: modules (FIXED)"
-  mkdir -p "$PREFIX/lib/mlt"
-  find "$SRC/mlt-win/build/out/lib/mlt" -name "*.dll" | while read dll; do
-    cp "$dll" "$PREFIX/lib/mlt/"
-    echo "  [copied] $(basename $dll)"
-  done
+  # FIX: MLT v7+ menaruh module & data di folder BER-VERSI, misal
+  # lib/mlt-7 dan share/mlt-7 (bukan lib/mlt & share/mlt polos seperti v6).
+  # Deteksi otomatis nama folder yang sebenarnya dipakai, supaya skrip
+  # ini tetap benar walau MLT naik versi lagi di masa depan.
 
-  echo ">>> FALLBACK: share (FIXED)"
-  mkdir -p "$PREFIX/share/mlt"
-  if [ -d "$SRC/mlt-win/build/out/share/mlt" ]; then
-    cp -r "$SRC/mlt-win/build/out/share/mlt/"* "$PREFIX/share/mlt/" 2>/dev/null || true
+  echo ">>> FALLBACK: modules (auto-detect versioned folder)"
+  LIB_MLT_SRC=$(find "$SRC/mlt-win/build/out/lib" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
+  if [ -n "$LIB_MLT_SRC" ]; then
+    MLT_MOD_NAME=$(basename "$LIB_MLT_SRC")
+    mkdir -p "$PREFIX/lib/$MLT_MOD_NAME"
+    find "$LIB_MLT_SRC" -name "*.dll" | while read dll; do
+      cp "$dll" "$PREFIX/lib/$MLT_MOD_NAME/"
+      echo "  [copied] $(basename "$dll")"
+    done
+    echo "  [OK] modules: $LIB_MLT_SRC -> $PREFIX/lib/$MLT_MOD_NAME"
+  else
+    echo "  [ERROR] folder lib/mlt* tidak ditemukan di build output!"
+    find "$SRC/mlt-win/build/out/lib" -maxdepth 1 2>/dev/null || true
+    exit 1
   fi
+
+  echo ">>> FALLBACK: share (auto-detect versioned folder)"
+  SHARE_MLT_SRC=$(find "$SRC/mlt-win/build/out/share" -maxdepth 1 -type d -name "mlt*" 2>/dev/null | head -1)
+  if [ -n "$SHARE_MLT_SRC" ]; then
+    MLT_SHARE_NAME=$(basename "$SHARE_MLT_SRC")
+    mkdir -p "$PREFIX/share/$MLT_SHARE_NAME"
+    cp -r "$SHARE_MLT_SRC/"* "$PREFIX/share/$MLT_SHARE_NAME/"
+    echo "  [OK] share: $SHARE_MLT_SRC -> $PREFIX/share/$MLT_SHARE_NAME"
+  else
+    echo "  [ERROR] folder share/mlt* tidak ditemukan di build output!"
+    find "$SRC/mlt-win/build/out/share" -maxdepth 1 2>/dev/null || true
+    exit 1
+  fi
+
+  # Simpan nama folder versioned supaya bisa dipakai skrip lain
+  # (misal run_melt.ps1 generator) tanpa perlu hardcode versi.
+  echo "$MLT_MOD_NAME" > "$PREFIX/.mlt_module_dir"
+  echo "$MLT_SHARE_NAME" > "$PREFIX/.mlt_share_dir"
+
+  # Copy semua runtime DLL dependency (glib, pango, freetype, ffmpeg, dll)
+  # yang ter-install di $PREFIX/lib/*.dll ke bin/, supaya Windows loader
+  # bisa resolve semua dependency saat melt.exe dijalankan.
+  echo ">>> Copying all runtime DLLs to bin/"
+  find "$PREFIX/lib" -maxdepth 1 -name "*.dll" -exec cp {} "$PREFIX/bin/" \;
 
   # =========================
   # VALIDASI FINAL
@@ -639,12 +679,32 @@ build_mlt() {
   fi
 
   echo "✅ melt.exe: $MELT_PATH"
-  echo "✅ modules: $(ls $PREFIX/lib/mlt 2>/dev/null | wc -l)"
-  echo "✅ share: $(ls $PREFIX/share/mlt 2>/dev/null | wc -l)"
+  echo "✅ module dir: $MLT_MOD_NAME ($(ls "$PREFIX/lib/$MLT_MOD_NAME" 2>/dev/null | wc -l) files)"
+  echo "✅ share dir : $MLT_SHARE_NAME ($(ls "$PREFIX/share/$MLT_SHARE_NAME" 2>/dev/null | wc -l) items)"
 
   echo "[OK] MLT BUILT SUCCESS"
 }
 
+# ─── generate run_melt.ps1 (otomatis pakai nama folder versioned yang benar) ─
+generate_run_melt_script() {
+  echo ">>> Generating run_melt.ps1..."
+  MLT_MOD_NAME=$(cat "$PREFIX/.mlt_module_dir" 2>/dev/null || echo "mlt")
+  MLT_SHARE_NAME=$(cat "$PREFIX/.mlt_share_dir" 2>/dev/null || echo "mlt")
+
+  cat > "$PREFIX/run_melt.ps1" << EOF
+# run_melt.ps1 (auto-generated by build-all-ubuntu.sh)
+# PowerShell script untuk menjalankan melt.exe dengan environment MLT yang benar
+\$env:MLT_HOME = \$PSScriptRoot
+\$env:MLT_REPOSITORY = "\$env:MLT_HOME\\lib\\$MLT_MOD_NAME"
+\$env:MLT_DATA = "\$env:MLT_HOME\\share\\$MLT_SHARE_NAME"
+\$env:MLT_PROFILES_PATH = "\$env:MLT_HOME\\share\\$MLT_SHARE_NAME\\profiles"
+\$env:PATH = "\$env:MLT_HOME\\bin;\$env:MLT_HOME;\$env:PATH"
+Set-Location \$env:MLT_HOME
+echo "" | & "\$env:MLT_HOME\\melt.exe" \$args
+EOF
+
+  echo "[OK] run_melt.ps1 generated (module=$MLT_MOD_NAME, share=$MLT_SHARE_NAME)"
+}
 
 # ─── MAIN ───────────────────────────────────────────────────────────────────
 echo "================================================"
@@ -653,6 +713,7 @@ echo "================================================"
 echo " PREFIX : $PREFIX"
 echo " SRC    : $SRC"
 echo " JOBS   : $JOBS"
+echo " MLT tag: $MLT_TAG"
 echo "================================================"
 
 setup_cross_env
@@ -677,10 +738,12 @@ build_libexif
 build_libebur128
 build_dlfcn
 build_mlt
+generate_run_melt_script
 
 echo ""
 echo "================================================"
 echo " DONE!"
-echo " melt.exe : $PREFIX/bin/melt.exe"
-echo " DLLs     : $PREFIX/bin/"
+echo " melt.exe    : $PREFIX/bin/melt.exe"
+echo " DLLs        : $PREFIX/bin/"
+echo " run_melt.ps1: $PREFIX/run_melt.ps1"
 echo "================================================"
