@@ -356,13 +356,25 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 11. Upload artifact (manual dispatch)
+      # FIX (masalah "extract zip berlapis"): actions/upload-artifact SELALU
+      # membungkus apapun yang di-upload ke dalam zip container lagi saat
+      # didownload dari tab Actions -- terlepas dari isi aslinya. Kalau kita
+      # upload mlt-windows.zip (yang sudah berupa zip) sebagai artifact,
+      # hasil download jadi zip-di-dalam-zip: extract pertama cuma dapat
+      # mlt-windows.zip lagi, baru extract kedua dapat isi sebenarnya.
+      # FIX: upload folder MENTAH (release-output/), bukan file .zip yang
+      # sudah jadi -- biarkan GitHub yang bungkus jadi zip SEKALI saja
+      # secara otomatis. Hasil download langsung berisi bin/, lib/, share/
+      # tanpa lapisan tambahan. (Release lewat tag TIDAK kena masalah ini
+      # -- softprops/action-gh-release upload file asli apa adanya sebagai
+      # release asset, tidak di-bungkus ulang.)
       # ─────────────────────────────────────────────
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: mlt-windows
-          path: mlt-windows.zip
+          path: release-output/
 
       # ─────────────────────────────────────────────
       # 12. GitHub Release (tag push)
