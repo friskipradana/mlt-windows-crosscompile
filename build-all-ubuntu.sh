@@ -1288,8 +1288,27 @@ Write-Host "[OK] $ModCount modul DLL ditemukan di MLT_REPOSITORY" -ForegroundCol
 Set-Location $env:MLT_HOME
 
 # FIX: hapus "echo "" | " pipe -- itu tidak perlu untuk -version/-query dan
-# berpotensi mengaburkan output/exit code asli melt.exe. Panggil langsung.
-& $MeltExe @args
+# berpotensi mengaburkan output/exit code asli melt.exe.
+#
+# FIX BARU (masalah "perlu enter enter terus" saat generate test filter):
+# script versi Alpine kamu pakai `echo "" | melt.exe` yang cuma kasih SATU
+# baris kosong ke stdin. Itu cuma nutup SATU prompt konfirmasi -- kalau
+# melt.exe minta Enter lebih dari sekali (mis. per-filter atau per-langkah
+# saat generate test), baris kosong itu langsung habis dan prompt
+# berikutnya tetap nunggu Enter manual dari keyboard kamu.
+#
+# Solusinya: redirect stdin dari device NUL (bukan echo satu baris). NUL
+# selalu mengembalikan EOF instan untuk SETIAP kali dibaca, bukan cuma
+# sekali -- jadi berapa pun banyaknya prompt Enter yang diminta melt.exe,
+# semuanya langsung "terlewati" otomatis tanpa nge-block sama sekali.
+# PowerShell sendiri tidak punya syntax redirect stdin native (`<`), jadi
+# trik ini dilakukan lewat cmd.exe sebagai perantara.
+$QuotedArgs = @($MeltExe) + $args | ForEach-Object {
+    '"' + ($_ -replace '"', '""') + '"'
+}
+$CmdLine = ($QuotedArgs -join ' ') + ' < NUL'
+
+cmd /c $CmdLine
 $ExitCode = $LASTEXITCODE
 
 if ($ExitCode -eq -1073741515 -or $ExitCode -eq 3221225781) {
