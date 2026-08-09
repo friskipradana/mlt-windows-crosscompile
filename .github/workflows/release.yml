@@ -264,10 +264,19 @@ jobs:
 
           mkdir -p "$OUT/bin" "$OUT/lib/mlt" "$OUT/share"
 
-          # Root: melt.exe + libmlt core DLL (v6 naming)
-          cp "$PREFIX/bin/melt.exe"        "$OUT/"
-          cp "$PREFIX/bin/libmlt-6.dll"    "$OUT/"
-          cp "$PREFIX/bin/libmlt++-3.dll"  "$OUT/"
+          # FIX (root cause "no plugins found di path yang salah"): MLT di
+          # Windows menghitung ULANG prefix-nya sendiri dari lokasi melt.exe
+          # (GetModuleFileName), dengan ASUMSI struktur baku <prefix>\bin\
+          # melt.exe -- lalu logic ini MENG-OVERWRITE MLT_REPOSITORY yang
+          # sudah kita set lewat env var, bukan cuma fallback kalau kosong.
+          # Sebelumnya melt.exe diratakan ke $OUT/ root (bukan $OUT/bin/),
+          # sehingga MLT salah hitung prefix (naik 1 folder terlalu jauh)
+          # dan nyari lib/mlt di folder PARENT project, bukan di project
+          # itu sendiri. FIX: taruh melt.exe & SEMUA dll di bin/, persis
+          # sama seperti struktur $PREFIX asli (yang terbukti jalan pas
+          # smoke test Wine) -- prefix/bin/melt.exe + prefix/lib/mlt +
+          # prefix/share/mlt sebagai sibling dari bin/.
+          cp "$PREFIX/bin/melt.exe" "$OUT/bin/"
 
           # lib/mlt: MLT module DLLs -- FIX: copy dari $PREFIX/lib/mlt,
           # lokasi asli hasil install, bukan dari $PREFIX/bin.
@@ -280,12 +289,10 @@ jobs:
             exit 1
           fi
 
-          # bin: semua DLL dependency lainnya (glib, pango, ffmpeg, dst),
-          # KECUALI 2 core libmlt yang sudah ditaruh di root
-          find "$PREFIX/bin" -maxdepth 1 -name "*.dll" \
-            ! -name "libmlt-6.dll" \
-            ! -name "libmlt++-3.dll" \
-            -exec cp {} "$OUT/bin/" \;
+          # bin: SEMUA DLL (termasuk core libmlt-6.dll/libmlt++-3.dll) --
+          # FIX: sebelumnya core DLL dipisah ke root, sekarang semua tetap
+          # di bin/ bersama melt.exe supaya struktur match asumsi MLT.
+          find "$PREFIX/bin" -maxdepth 1 -name "*.dll" -exec cp {} "$OUT/bin/" \;
 
           # share
           if [ -d "$PREFIX/share/mlt" ]; then
@@ -302,6 +309,15 @@ jobs:
           else
             echo "❌ \$PREFIX/run_melt.ps1 tidak ditemukan! Cek generate_run_melt_script() di build-all-ubuntu.sh."
             exit 1
+          fi
+
+          # FIX BARU: ikut package run_melt.bat -- wrapper supaya user tidak
+          # perlu ubah PowerShell execution policy atau ketik -ExecutionPolicy
+          # Bypass manual tiap kali mau jalankan run_melt.ps1.
+          if [ -f "$PREFIX/run_melt.bat" ]; then
+            cp "$PREFIX/run_melt.bat" "$OUT/"
+          else
+            echo "⚠️  \$PREFIX/run_melt.bat tidak ditemukan, skip (bukan fatal)."
           fi
 
           find "$OUT" -type f -iname "*.zip" -delete
@@ -324,6 +340,17 @@ jobs:
             echo "❌ ZIP tidak berisi modul apapun di lib/mlt/!"
             exit 1
           fi
+
+          echo "=== Sanity check: melt.exe HARUS di bin/, BUKAN di root ==="
+          # FIX: cek eksplisit supaya kalau ada yang tanpa sadar flatten lagi
+          # di masa depan, build langsung gagal jelas -- bukan silent bug
+          # yang baru ketahuan lagi setelah user download & test di Windows.
+          if unzip -l "$ZIP" | grep -qE "^\s*[0-9]+.*[[:space:]]melt\.exe$"; then
+            echo "❌ Ada melt.exe di ROOT zip! Ini akan bikin MLT salah hitung"
+            echo "   prefix path lagi (lihat komentar FIX di step Package)."
+            exit 1
+          fi
+          unzip -l "$ZIP" | grep -i "bin/melt.exe" || { echo "❌ bin/melt.exe tidak ditemukan di ZIP!"; exit 1; }
 
           ls -lh "$ZIP"
 
